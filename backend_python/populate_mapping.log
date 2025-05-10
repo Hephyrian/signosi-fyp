@@ -1,0 +1,40 @@
+2025-05-09 03:08:36,490 - INFO - Starting script to populate sign-language-translator\sign_language_translator\assets\parallel_texts\lk-custom-dictionary-mapping.json
+2025-05-09 03:08:36,491 - INFO - Media base directory: c:\Users\mario\OneDrive\Documents\personal\signosi\backend_python\sign-language-translator\sign_language_translator\assets\datasets\lk-custom\media
+2025-05-09 03:08:36,492 - INFO - Mapping file path: c:\Users\mario\OneDrive\Documents\personal\signosi\backend_python\sign-language-translator\sign_language_translator\assets\parallel_texts\lk-custom-dictionary-mapping.json
+2025-05-09 03:08:36,509 - INFO - Loaded existing mapping file with 2 entries.
+2025-05-09 03:08:36,509 - INFO - Next available ID for new entries: 003
+2025-05-09 03:08:36,511 - ERROR - No suitable media file found in directory: .git
+2025-05-09 03:08:36,516 - ERROR - No suitable media file found in directory: 0
+2025-05-09 03:08:36,517 - ERROR - No suitable media file found in directory: 1
+2025-05-09 03:08:38,180 - ERROR - No suitable media file found in directory: 10
+2025-05-09 03:08:40,219 - ERROR - No suitable media file found in directory: 11
+2025-05-09 03:08:43,608 - ERROR - No suitable media file found in directory: 13
+2025-05-09 03:08:45,943 - ERROR - No suitable media file found in directory: 14
+2025-05-09 03:08:49,259 - ERROR - No suitable media file found in directory: 16
+2025-05-09 03:08:50,192 - ERROR - No suitable media file found in directory: 17
+2025-05-09 03:08:52,447 - ERROR - No suitable media file found in directory: 18
+2025-05-09 03:08:54,365 - ERROR - No suitable media file found in directory: 19
+2025-05-09 03:08:55,699 - ERROR - No suitable media file found in directory: 2
+2025-05-09 03:08:58,030 - ERROR - No suitable media file found in directory: 20
+2025-05-09 03:08:59,802 - ERROR - No suitable media file found in directory: 3
+2025-05-09 03:09:01,822 - ERROR - No suitable media file found in directory: 30
+2025-05-09 03:09:01,825 - ERROR - No suitable media file found in directory: 4
+2025-05-09 03:09:03,578 - ERROR - No suitable media file found in directory: 40
+2025-05-09 03:09:03,582 - ERROR - No suitable media file found in directory: 5
+2025-05-09 03:09:05,283 - ERROR - No suitable media file found in directory: 50
+2025-05-09 03:09:05,288 - ERROR - No suitable media file found in directory: 6
+2025-05-09 03:09:06,271 - ERROR - No suitable media file found in directory: 60
+2025-05-09 03:09:06,276 - ERROR - No suitable media file found in directory: 7
+2025-05-09 03:09:08,211 - ERROR - No suitable media file found in directory: 70
+2025-05-09 03:09:08,213 - ERROR - No suitable media file found in directory: 8
+2025-05-09 03:09:09,433 - ERROR - No suitable media file found in directory: 80
+2025-05-09 03:09:09,434 - ERROR - No suitable media file found in directory: 9
+2025-05-09 03:09:11,199 - ERROR - No suitable media file found in directory: 90
+2025-05-09 03:09:31,506 - INFO - Skipping directory 'Ayubowan': An entry with this English gloss might already exist.
+2025-05-09 03:09:47,223 - INFO - Skipping directory 'Book': An entry with this English gloss might already exist.
+2025-05-09 03:12:23,325 - INFO - Skipping directory 'Hello': An entry with this English gloss might already exist.
+2025-05-09 03:16:59,335 - INFO - Added entry for 'Who' (Sinhala: WHO) with media 'Who_001.mov' as key 'lk-custom-366_Who'
+2025-05-09 03:17:17,084 - ERROR - No suitable media file found in directory: colombo
+2025-05-09 03:17:17,085 - ERROR - No suitable media file found in directory: iloveyou
+2025-05-09 03:17:18,037 - INFO - Successfully updated and saved mapping file with 380 new entries. Total entries: 382
+2025-05-09 03:17:18,037 - INFO - Script finished. Log saved to populate_mapping.log
