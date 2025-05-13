@@ -11,7 +11,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+backend_python/venv/Lib/
 lib64/
 parts/
 sdist/
@@ -36,6 +36,7 @@ env/
 # Python package manager
 .pipenv/
 .poetry/
+google-credentials.json
 
 # Logs and temporary files
 *.log

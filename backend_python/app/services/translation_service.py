@@ -26,15 +26,23 @@ if SLT_PACKAGE_ROOT_DIR not in sys.path:
     sys.path.insert(0, SLT_PACKAGE_ROOT_DIR)
 
 try:
+    # Core models and config
     import sign_language_translator.models as slt_models
     from sign_language_translator.config import settings as slt_settings
-    from sign_language_translator.config.assets import Assets # Import Assets class
-    from sign_language_translator.config.enums import SignFormats # Import SignFormats
-    from .sinhala_text_language import SinhalaTextLanguage
-    from sign_language_translator.languages.sign.sinhala_sign_language import SinhalaSignLanguage
+    from sign_language_translator.config.assets import Assets
+    from sign_language_translator.config.enums import SignFormats
     
+    # Language implementations
+    from sign_language_translator.languages.sign.sinhala_sign_language import SinhalaSignLanguage
+    from sign_language_translator.languages.text.sinhala_text_language import SinhalaTextLanguage
+    
+    # Vision and landmarks
+    from sign_language_translator.vision.video.video import Video
+    from sign_language_translator.vision.landmarks.landmarks import Landmarks
+    from sign_language_translator.models.video_embedding.mediapipe_landmarks_model import MediaPipeLandmarksModel
+
 except ImportError as e:
-    logging.error(f"Error importing sign_language_translator: {e}")
+    logging.error(f"Error importing sign_language_translator or its components: {e}")
     logging.error(f"Ensure sign-language-translator is in PYTHONPATH or installed. Current sys.path: {sys.path}")
     slt_models = None # So app can check and fail gracefully
 
@@ -44,32 +52,32 @@ _custom_lk_mapping_data = None # Store the loaded JSON data
 def _load_lk_custom_mapping_data_once():
     global _custom_lk_mapping_data
     if _custom_lk_mapping_data is None: # Load only once
-        if not Assets: # Check if Assets class is available
+        try:
+            mapping_path = os.path.join(Assets.ROOT_DIR, "lk-dictionary-mapping.json") # Use Assets.ROOT_DIR
+            if os.path.exists(mapping_path):
+                try:
+                    with open(mapping_path, "r", encoding="utf-8") as f:
+                        _custom_lk_mapping_data = json.load(f)
+                    logging.info(f"Successfully loaded lk-dictionary-mapping.json for custom video path function.")
+                except Exception as e:
+                    _custom_lk_mapping_data = {} # Ensure it's a dict on error
+                    logging.error(f"Failed to load or parse lk-dictionary-mapping.json for custom video path function: {e}", exc_info=True)
+            else:
+                _custom_lk_mapping_data = {} # Ensure it's a dict if file not found
+                logging.warning(f"lk-dictionary-mapping.json not found at {mapping_path} for custom video path function.")
+        except (NameError, AttributeError):
             logging.error("Assets class not available for loading custom mapping.")
             _custom_lk_mapping_data = {}
             return
 
-        mapping_path = os.path.join(Assets.ROOT_DIR, "lk-dictionary-mapping.json") # Use Assets.ROOT_DIR
-        if os.path.exists(mapping_path):
-            try:
-                with open(mapping_path, "r", encoding="utf-8") as f:
-                    _custom_lk_mapping_data = json.load(f)
-                logging.info(f"Successfully loaded lk-dictionary-mapping.json for custom video path function.")
-            except Exception as e:
-                _custom_lk_mapping_data = {} # Ensure it's a dict on error
-                logging.error(f"Failed to load or parse lk-dictionary-mapping.json for custom video path function: {e}", exc_info=True)
-        else:
-            _custom_lk_mapping_data = {} # Ensure it's a dict if file not found
-            logging.warning(f"lk-dictionary-mapping.json not found at {mapping_path} for custom video path function.")
-
-if Assets: # Ensure Assets class is available before calling
-    _load_lk_custom_mapping_data_once() # Load when the module is imported
-else:
+try:
+    _load_lk_custom_mapping_data_once() # Attempt to load when the module is imported
+except (NameError, AttributeError):
     logging.error("Assets class not imported, cannot load custom mapping for video paths.")
     _custom_lk_mapping_data = {}
 
 # Custom ConcatenativeSynthesis model for Sinhala SLSL
-class CustomSinhalaConcatenativeSynthesis(slt_models.ConcatenativeSynthesis):
+class CustomSinhalaConcatenativeSynthesis(slt_models.ConcatenativeSynthesis if slt_models else object):
     def _prepare_resource_name(self, label: str, person=None, camera=None, sep="_") -> str:
         logging.debug(f"CustomSinhalaConcatenativeSynthesis._prepare_resource_name called with label: '{label}'")
         # 'label' is the sign_id from SinhalaSignLanguage, e.g., "lk-custom-S0001_Potha"
@@ -137,15 +145,14 @@ if slt_models:
         try:
             logging.info("Attempting to initialize Sinhala model (si_to_sinhala-sl) using CustomSinhalaConcatenativeSynthesis...")
             models["si_to_sinhala-sl"] = CustomSinhalaConcatenativeSynthesis( # Use the custom class
-                text_language=sinhala_text_processor, 
+                text_language="si",
                 sign_language=sinhala_sign_language,
-                sign_format="video" 
-                # No get_sign_video_path_function needed here anymore
+                sign_format="video",  # Using video format
             )
-            logging.info("Sinhala model (custom) initialized successfully.")
+            logging.info("Sinhala model (custom) initialized successfully with video output.")
         except Exception as te:
-            logging.error(f"Error initializing custom Sinhala model: {te}. Skipping this model.", exc_info=True)
-        
+            logging.error(f"Error initializing custom Sinhala model for video: {te}. Skipping this model.", exc_info=True)
+
         # # Model for English text to Sinhala Sign Language (Temporarily Disabled due to Vocab loading error)
         # try:
         #     logging.info("Attempting to initialize English model (en_to_sinhala-sl)...")
@@ -157,7 +164,7 @@ if slt_models:
         #     logging.info("English model initialized successfully.")
         # except Exception as te:
         #     logging.error(f"Error initializing English model: {te}. Skipping this model.", exc_info=True)
-        
+
         if models:
             logging.info("Some sign language translation models initialized successfully.")
         else:
@@ -190,27 +197,31 @@ def translate_text_to_slsl(text, source_language_code="si"):
         logging.info(f"Attempting translation for text: '{text}' using model: {model_key}")
         logging.debug(f"Model instance: {model}")
         logging.debug(f"Input text type: {type(text)}, value: {text}")
-        
-        # === Call the core translation method ===
-        # This now returns a list of resource names (paths)
-        resource_paths = model.translate(text)
-        # =======================================
-        
-        logging.info(f"Translation call completed. Output type: {type(resource_paths)}")
-        logging.debug(f"Raw resource_paths: {resource_paths}")
 
-        # Check if the result is a list and is not empty
-        if isinstance(resource_paths, list) and resource_paths:
-            logging.info(f"Translation successful. Found {len(resource_paths)} video path(s).")
-            # TODO: Convert these absolute paths to web-accessible URLs/relative paths for the frontend
-            # For now, return the absolute paths as obtained.
-            # Consider creating dicts for each path if more info is needed later.
-            return {"video_paths": resource_paths} 
-            
-        logging.info("Translation resulted in an empty list of video paths.")
-        return {"video_paths": []} # Return empty list if no paths found
-        
+        # === Call the core translation method ===
+        # This returns either a Landmarks object or a list of video paths
+        result = model.translate(text)
+        # =======================================
+
+        logging.info(f"Translation call completed. Output type: {type(result)}")
+        logging.debug(f"Raw result object: {result}")
+
+        # Check if the result is a Landmarks object or a list of video paths
+        if isinstance(result, Landmarks):  # Use the imported Landmarks class
+            logging.info(f"Translation successful. Received Landmarks object with shape: {result.tensor.shape}")
+            # Convert tensor to a list of lists for JSON serialization
+            landmark_data = result.tensor.numpy().tolist()
+            logging.debug(f"Landmark data list (first frame): {landmark_data[0] if landmark_data else 'No frames'}")
+            return {"landmark_data": landmark_data}
+        elif isinstance(result, list) and all(isinstance(item, str) for item in result):
+            # Handle the case where we get a list of video file paths
+            logging.info(f"Translation successful. Received list of {len(result)} video paths.")
+            # Return the video paths
+            return {"signs": [{"media_path": path} for path in result]}
+        else:
+            logging.error(f"Translation returned unexpected result type: {type(result)}")
+            return {"error": "Translation failed to produce expected output format."}
+
     except Exception as e:
-        
-        logging.error(f"Exception during translation for text '{text}': {e}", exc_info=True) 
+        logging.error(f"Exception during translation for text '{text}': {e}", exc_info=True)
         return {"error": f"Translation failed: {str(e)}"}

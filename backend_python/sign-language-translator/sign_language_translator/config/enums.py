@@ -103,6 +103,7 @@ class TextLanguages(Enum, metaclass=PrintableEnumMeta):
     URDU = "ur"
     ENGLISH = "en"
     HINDI = "hi"
+    SINHALA = "si" # Added Sinhala
 
 
 class SignLanguages(Enum, metaclass=PrintableEnumMeta):

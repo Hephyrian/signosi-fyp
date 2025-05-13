@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'screens/speech_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -16,15 +17,6 @@ class HomeScreen extends StatelessWidget {
                 'assets/images/signosi_logo_hand.png', // Placeholder - replace with your actual asset
                 height: 24, // Adjust as needed
                 // You'll need to add this asset to your pubspec.yaml and assets folder
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Text(
-              'Signosi',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                // color: Colors.orange, // Consider using theme colors
               ),
             ),
           ],
@@ -61,7 +53,10 @@ class HomeScreen extends StatelessWidget {
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       floatingActionButton: FloatingActionButton.large(
         onPressed: () {
-          // TODO: Implement tap to speak
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const SpeechScreen()),
+          );
         },
         backgroundColor: Colors.orange, // Theme primary or custom
         child: const Icon(Icons.mic, color: Colors.white, size: 40),

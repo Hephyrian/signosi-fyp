@@ -10,7 +10,7 @@ from sign_language_translator.config.enums import (
     normalize_short_code,
 )
 from sign_language_translator.languages.sign import PakistanSignLanguage
-from sign_language_translator.languages.text import English, Hindi, Urdu
+from sign_language_translator.languages.text import English, Hindi, Urdu, SinhalaTextLanguage # Added SinhalaTextLanguage
 
 if TYPE_CHECKING:
     from enum import Enum
@@ -38,6 +38,7 @@ def get_text_language(language_name: Union[str, Enum]) -> TextLanguage:
         TextLanguages.URDU.value: Urdu,
         TextLanguages.HINDI.value: Hindi,
         TextLanguages.ENGLISH.value: English,
+        TextLanguages.SINHALA.value: SinhalaTextLanguage, # Added Sinhala
     }
 
     class_ = code_to_class.get(normalize_short_code(language_name), None)

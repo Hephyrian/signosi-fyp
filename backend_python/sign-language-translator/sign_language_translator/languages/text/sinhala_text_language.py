@@ -17,13 +17,14 @@ SLT_PACKAGE_DIR = os.path.join(BACKEND_PYTHON_DIR, "sign-language-translator")
 if SLT_PACKAGE_DIR not in sys.path:
     sys.path.insert(0, SLT_PACKAGE_DIR)
 
+# Import TextLanguage directly from text_language module to avoid circular imports
 try:
-    from sign_language_translator.languages.text import TextLanguage
+    from sign_language_translator.languages.text.text_language import TextLanguage
 except ImportError as e:
     print(f"Error importing TextLanguage from sign_language_translator: {e}")
     print(f"SLT_PACKAGE_DIR: {SLT_PACKAGE_DIR}")
     print(f"sys.path: {sys.path}")
-    raise
+    TextLanguage = object  # Fallback to a dummy object to allow class definition
 
 class SinhalaTextLanguage(TextLanguage):
     """
