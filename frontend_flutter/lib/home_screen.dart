@@ -101,7 +101,7 @@ class HomeScreen extends StatelessWidget {
       width: 180, // Adjust width as needed
       child: Card(
         // elevation: 1, // M3 uses subtle elevation or surface tints
-        color: Theme.of(context).colorScheme.surfaceVariant,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: Padding(
           padding: const EdgeInsets.all(12.0),
@@ -119,7 +119,7 @@ class HomeScreen extends StatelessWidget {
               Text(
                 phrase.timestamp,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.7),
+              color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
                     ),
               ),
             ],
@@ -173,7 +173,7 @@ class HomeScreen extends StatelessWidget {
     return BottomAppBar(
       shape: const CircularNotchedRectangle(), // Creates the notch for the FAB
       notchMargin: 8.0, // Margin for the notch
-      color: Theme.of(context).colorScheme.surfaceVariant,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
       // elevation: 0, // M3 often has flat bottom app bars
       child: SizedBox(
         height: 70, // Increased height to accommodate text below icons
@@ -278,4 +278,4 @@ final List<EmergencyPhraseItem> emergencyPhrases = [
     backgroundColor: Colors.yellow.shade200, // Adjusted for better visibility
     contentColor: Colors.yellow.shade900, // Darker for contrast
   ),
-]; 
+];

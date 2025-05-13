@@ -1,0 +1,114 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+env.bak/
+venv.bak/
+
+# Virtual Environment
+venv/
+env/
+
+# Python IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python package manager
+.pipenv/
+.poetry/
+
+# Logs and temporary files
+*.log
+*.tmp
+temp/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Flutter/Dart
+.DS_Store
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+ios/Flutter/App.framework
+ios/Flutter/Flutter.framework
+ios/Flutter/Generated.xcconfig
+ios/Flutter/app.flxc
+ios/Flutter/app.flx
+ios/Flutter/flutter_export_environment.sh
+ios/Flutter/flutter_export_environment.zsh
+ios/Runner/GeneratedPluginRegistrant.*
+android/.gradle/
+android/app/build/
+android/app/.project
+android/app/.classpath
+android/app/.settings/
+android/.settings/
+android/build/
+android/local.properties
+
+# Flutter IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Editor directories and files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project specific
+backend_python/videos/
+backend_python/initialization.log
+backend_python/populate_mapping.log
+frontend_flutter/build/
+
+# Git itself
+.git/
+.gitmodules
+.gitattributes

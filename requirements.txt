@@ -10,4 +10,3 @@ click==8.1.6
 requests==2.31.0
 mediapipe==0.10.13
 deep_translator==1.11.4
-sign-language-translator

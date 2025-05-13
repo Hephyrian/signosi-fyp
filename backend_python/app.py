@@ -1,55 +1,83 @@
 from flask import Flask, request, jsonify
 import os
+import sys
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
-app = Flask(__name__)
+# Add the 'backend_python' directory to sys.path
+# This allows `from app.routes...` and `from app.services...` to work
+# when app.py is in backend_python/ and the app modules are in backend_python/app/
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-@app.route('/')
-def hello():
-    return "Python backend is running!"
 
-@app.route('/api/speech-to-text/realtime', methods=['POST'])
-def realtime_speech_to_text():
-    # Placeholder for real-time speech recognition logic
-    # This will involve receiving audio stream and sending to Google Cloud Speech-to-Text
-    return jsonify({"message": "Real-time endpoint hit"}), 200
+def create_app(config_object_name=None):
+    """
+    Application factory for the Flask app.
+    Initializes the Flask app, loads configuration, and registers blueprints.
+    """
+    flask_app = Flask(__name__)
 
-@app.route('/api/speech-to-text/asynchronous', methods=['POST'])
-def asynchronous_speech_to_text():
-    # Placeholder for asynchronous speech recognition logic
-    # This will involve receiving an audio file, uploading to GCS (optional),
-    # and starting a long-running operation with Google Cloud Speech-to-Text
-    if 'audio_file' not in request.files:
-        return jsonify({"error": "No audio file part"}), 400
-    file = request.files['audio_file']
-    if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
-    if file:
-        # Process file here (e.g., save it, send to GCS, etc.)
-        return jsonify({"message": f"File {file.filename} received. Asynchronous processing started."}), 202
+    if config_object_name:
+        flask_app.config.from_object(config_object_name)
+    else:
+        flask_app.config.from_mapping(
+            DEBUG=os.environ.get('FLASK_DEBUG', True),
+            SECRET_KEY=os.environ.get('SECRET_KEY', 'a-very-secure-default-key')
+        )
 
-# Placeholder for authentication routes
-@app.route('/api/auth/login', methods=['POST'])
-def login():
-    return jsonify({"message": "Login endpoint placeholder"}), 200
+    # Import and register blueprints
+    try:
+        from app.routes.translation_routes import translate_bp
+        flask_app.register_blueprint(translate_bp, url_prefix='/api/translate')
+    except ImportError as e:
+        print(f"Could not import or register translate_bp: {e}")
+        # Potentially raise an error or log more severely if this is critical
 
-@app.route('/api/auth/register', methods=['POST'])
-def register():
-    return jsonify({"message": "Register endpoint placeholder"}), 200
+    # --- Original routes (can be moved to their own blueprints later) ---
+    @flask_app.route('/')
+    def hello():
+        return "Python backend is running! (Refactored with Blueprints and App Factory)"
 
-# Placeholder for database related routes
-@app.route('/api/data', methods=['GET'])
-def get_data():
-    return jsonify({"message": "Get data endpoint placeholder"}), 200
+    @flask_app.route('/api/speech-to-text/realtime', methods=['POST'])
+    def realtime_speech_to_text():
+        # Placeholder for real-time speech recognition logic
+        return jsonify({"message": "Real-time endpoint hit"}), 200
 
-@app.route('/api/data', methods=['POST'])
-def post_data():
-    return jsonify({"message": "Post data endpoint placeholder"}), 200
+    @flask_app.route('/api/speech-to-text/asynchronous', methods=['POST'])
+    def asynchronous_speech_to_text():
+        if 'audio_file' not in request.files:
+            return jsonify({"error": "No audio file part"}), 400
+        file = request.files['audio_file']
+        if file.filename == '':
+            return jsonify({"error": "No selected file"}), 400
+        if file:
+            # Process file here
+            return jsonify({"message": f"File {file.filename} received. Asynchronous processing started."}), 202
 
+    @flask_app.route('/api/auth/login', methods=['POST'])
+    def login():
+        return jsonify({"message": "Login endpoint placeholder"}), 200
+
+    @flask_app.route('/api/auth/register', methods=['POST'])
+    def register():
+        return jsonify({"message": "Register endpoint placeholder"}), 200
+
+    @flask_app.route('/api/data', methods=['GET'])
+    def get_data():
+        return jsonify({"message": "Get data endpoint placeholder"}), 200
+
+    @flask_app.route('/api/data', methods=['POST'])
+    def post_data():
+        return jsonify({"message": "Post data endpoint placeholder"}), 200
+    
+    return flask_app
+
+# Create the Flask app instance using the factory
+app = create_app()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
-    app.run(debug=True, host='0.0.0.0', port=port) 
+    # Run the app instance created by the factory
+    app.run(debug=os.environ.get('FLASK_ENV') == 'development', host='0.0.0.0', port=port)

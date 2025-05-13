@@ -5,11 +5,13 @@ import re
 from deep_translator import GoogleTranslator
 
 # --- Configuration ---
-BASE_SIGN_LANGUAGE_TRANSLATOR_PATH = os.path.join("sign-language-translator", "sign_language_translator")
+# Prepend 'backend_python' to the base path
+BASE_SIGN_LANGUAGE_TRANSLATOR_PATH = os.path.join("backend_python", "sign-language-translator", "sign_language_translator")
 MEDIA_BASE_DIR = os.path.join(BASE_SIGN_LANGUAGE_TRANSLATOR_PATH, "assets", "datasets", "lk-custom", "media")
-MAPPING_FILE_PATH = os.path.join(BASE_SIGN_LANGUAGE_TRANSLATOR_PATH, "assets", "parallel_texts", "lk-custom-dictionary-mapping.json")
-DATASET_PREFIX = "lk-custom"
-LOG_FILE_PATH = "populate_mapping.log"
+# Save directly to assets directory with the expected name format
+MAPPING_FILE_PATH = os.path.join(BASE_SIGN_LANGUAGE_TRANSLATOR_PATH, "assets", "lk-dictionary-mapping.json")
+DATASET_PREFIX = "lk-custom" # Keep prefix for generating entry keys if needed, but filename is changed
+LOG_FILE_PATH = "populate_mapping.log" # Log file will be created in the CWD (backend_python/)
 
 # --- Setup Logging ---
 logging.basicConfig(

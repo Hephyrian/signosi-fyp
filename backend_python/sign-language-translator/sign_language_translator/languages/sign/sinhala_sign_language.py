@@ -2,6 +2,9 @@
 
 import re
 import random # If needed for rule selection
+import logging # <-- Add logging import
+import os # <-- Add os import
+import json # <-- Add json import
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from sign_language_translator.config.assets import Assets
@@ -33,66 +36,78 @@ class SinhalaSignLanguage(SignLanguage):
         return SINHALA_SIGN_LANGUAGE_NAME
 
     def __init__(self) -> None:
+        logging.info("SinhalaSignLanguage: Initializing instance...")
         super().__init__()
 
-        # Load vocabulary specific to Sinhala Sign Language
-        self.vocab = Vocab(
-            language_codes_or_regex=["si", "en"], # Match keys in your mapping's "text" field
-            collection_name_or_regex="lk-custom-dictionary-mapping.json", # Points to your custom mapping
-            data_root_dir=Assets.ROOT_DIR,
-        )
-
+        # Load custom Sinhala vocabulary directly
         self.word_to_sign_dict: Dict[str, Dict] = {}
-        # This part assumes Vocab populates an attribute like `word_to_parsed_data`
-        # where each item contains necessary info including the sign labels (unique IDs).
-        # The exact attribute name and structure from Vocab needs verification for custom JSON.
-        # Let's assume `self.vocab.get_word_to_sign_sequences_map()` is a method that returns
-        # a dict like: {"word": [["label1_seq1_part1", "label1_seq1_part2"], ["label1_seq2_part1"]]}
-        # For now, we'll use a placeholder logic that needs to be aligned with Vocab's actual output.
-
-        # Hypothetical: Vocab provides a direct word -> list of label sequences
-        # (where a sequence is a list of sign labels for a single meaning of the word)
-        # e.g. {"hello": [["lk-custom-001_Hello"]], "book": [["lk-custom-002_Book"]]}
-        # This structure is what _make_equal_weight_sign_dict expects for its 'signs' argument.
-        
-        # Attempt to populate word_to_sign_dict from vocab.
-        # This is a critical section that depends heavily on how Vocab processes
-        # your 'lk-custom-dictionary-mapping.json'.
-        # You might need to inspect Vocab's code or debug its output.
-        # For example, if vocab.word_to_labels provides {word: ["label1", "label2"]} for multiple variants of a word
-        # or {word: "primary_label"}
-        
-        # Let's assume vocab has an attribute `word_to_sign_options` which is a dictionary:
-        # {
-        #    "word_from_mapping_text_field": [ # list of options for this word
-        #        ["lk-custom-ID_Gloss"],      # option 1: a sequence of 1 sign label
-        #        ["lk-custom-ID2_Gloss_part1", "lk-custom-ID2_Gloss_part2"] # option 2: sequence of 2 labels
-        #    ], ...
-        # }
-        # This is what self._make_equal_weight_sign_dict expects as its `signs` argument.
-        # The `Vocab` class would need to parse your `lk-custom-dictionary-mapping.json`
-        # to produce this structure, associating words (from "text.si", "text.en")
-        # with their corresponding media labels (derived from the top-level key like "lk-custom-001_Ayubowan").
-
-        # Placeholder: Iterate through the mapping JSON directly if Vocab doesn't provide a ready map.
-        # This is not ideal as Vocab should be the source of truth.
-        # You should aim to make Vocab load your JSON into a usable structure.
         _temp_word_to_labels = {}
-        if hasattr(self.vocab, 'data') and isinstance(self.vocab.data, dict):
-            for label, mapping_data in self.vocab.data.items(): # self.vocab.data is the loaded JSON
-                if "text" in mapping_data and isinstance(mapping_data["text"], dict):
-                    # The label itself (e.g., "lk-custom-001_Ayubowan") is the sign identifier
-                    sign_sequence = [label] # Assuming one sign per word for dictionary entries
-                    for lang_code, text_list in mapping_data["text"].items():
-                        if isinstance(text_list, list):
-                            for text_word in text_list:
-                                _temp_word_to_labels.setdefault(text_word.lower(), [])
-                                if sign_sequence not in _temp_word_to_labels[text_word.lower()]:
-                                     _temp_word_to_labels[text_word.lower()].append(sign_sequence)
         
+        custom_mapping_filename = "lk-dictionary-mapping.json"
+        # Assets.ROOT_DIR should point to 'sign_language_translator/assets/'
+        custom_mapping_path = os.path.join(Assets.ROOT_DIR, custom_mapping_filename)
+        logging.info(f"SinhalaSignLanguage: Attempting to load custom mapping from: {custom_mapping_path}")
+
+        loaded_custom_data = {}
+        if os.path.exists(custom_mapping_path):
+            try:
+                with open(custom_mapping_path, "r", encoding="utf-8") as f:
+                    loaded_custom_data = json.load(f)
+                logging.info(f"SinhalaSignLanguage: Successfully loaded custom mapping with {len(loaded_custom_data)} top-level entries from {custom_mapping_path}")
+            except Exception as e:
+                logging.error(f"SinhalaSignLanguage: Failed to load or parse custom mapping from {custom_mapping_path}: {e}", exc_info=True)
+        else:
+            logging.warning(f"SinhalaSignLanguage: Custom mapping file not found at {custom_mapping_path}")
+
+        # Populate _temp_word_to_labels using the directly loaded_custom_data
+        if isinstance(loaded_custom_data, dict):
+            for label, mapping_data in loaded_custom_data.items():
+                if "text" in mapping_data and isinstance(mapping_data["text"], dict):
+                    sign_sequence = [label] # Assuming one sign per word for dictionary entries
+                    # <<< FOCUS ONLY ON SINHALA ('si') ENTRIES >>>
+                    if "si" in mapping_data["text"] and isinstance(mapping_data["text"]["si"], list):
+                        for text_word in mapping_data["text"]["si"]:
+                            # <<< ADD SPECIFIC LOGGING FOR THE TARGET WORD 'පොත' >>>
+                            if text_word == "පොත":
+                                logging.info(f"SinhalaSignLanguage: Found target word '{text_word}' in JSON under label '{label}'. Preparing to add to _temp_word_to_labels.")
+                            
+                            word_lower = text_word.lower()
+                            logging.debug(f"SinhalaSignLanguage: Processing SINHALA word '{text_word}' (lowercase: '{word_lower}') for label '{label}'")
+                            _temp_word_to_labels.setdefault(word_lower, [])
+                            if sign_sequence not in _temp_word_to_labels[word_lower]:
+                                _temp_word_to_labels[word_lower].append(sign_sequence)
+                                logging.debug(f"SinhalaSignLanguage: Added sequence {sign_sequence} for Sinhala word '{word_lower}'")
+                            else:
+                                logging.debug(f"SinhalaSignLanguage: Sequence {sign_sequence} already exists for Sinhala word '{word_lower}'")
+                    else:
+                        logging.debug(f"SinhalaSignLanguage: No 'si' text list found for label '{label}'. Skipping Sinhala word processing for this label.")
+        
+        logging.info(f"SinhalaSignLanguage: Populating final word_to_sign_dict from _temp_word_to_labels ({len(_temp_word_to_labels)} entries)...")
         for word, sequences in _temp_word_to_labels.items():
             if sequences:
-                self.word_to_sign_dict[word] = self._make_equal_weight_sign_dict(sequences)
+                try:
+                    sign_dict_entry = self._make_equal_weight_sign_dict(sequences)
+                    self.word_to_sign_dict[word] = sign_dict_entry
+                    logging.debug(f"SinhalaSignLanguage: Added entry to word_to_sign_dict for word '{word}': {sign_dict_entry}")
+                except ZeroDivisionError:
+                    # Handle case where division by zero might occur due to empty or invalid data
+                    sign_dict_entry = {"signs": sequences, "weights": [1.0 / len(sequences) if len(sequences) > 0 else 0.0 for _ in sequences]}
+                    self.word_to_sign_dict[word] = sign_dict_entry
+                    logging.warning(f"SinhalaSignLanguage: Handled ZeroDivisionError for word '{word}', created entry: {sign_dict_entry}")
+                except Exception as e:
+                     logging.error(f"SinhalaSignLanguage: Error processing word '{word}' for final dict: {e}", exc_info=True)
+            else:
+                 logging.warning(f"SinhalaSignLanguage: Skipping word '{word}' due to empty sequences.")
+
+
+        # Log dictionary status
+        logging.info(f"SinhalaSignLanguage: word_to_sign_dict population complete. Final size: {len(self.word_to_sign_dict)} entries.")
+        # Check specifically for the lowercase version as keys are lowercased during population
+        target_word = "පොත"
+        if target_word.lower() in self.word_to_sign_dict:
+            logging.info(f"SinhalaSignLanguage: Entry for '{target_word}' (lowercase) found in word_to_sign_dict: {self.word_to_sign_dict[target_word.lower()]}")
+        else:
+            logging.warning(f"SinhalaSignLanguage: Entry for '{target_word}' (lowercase) NOT found in word_to_sign_dict.")
 
 
         # Define mapping rules
@@ -123,16 +138,20 @@ class SinhalaSignLanguage(SignLanguage):
             contexts = [None for _ in tokens]
 
         sign_dicts_list = []
+        logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Received tokens: {list(tokens)}, tags: {list(tags)}")
         for token, tag, context in zip(tokens, tags, contexts):
+            logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Processing token='{token}', tag='{tag}'")
             try:
                 # _apply_rules expects a single token and returns a list of sign_dicts for that token
                 # (often just one dict, but rules like number chunking can produce multiple)
                 token_sign_dicts = self._apply_rules(token, tag, context)
+                logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: For token='{token}', _apply_rules returned: {token_sign_dicts}")
                 sign_dicts_list.extend(token_sign_dicts)
             except ValueError as e:
+                logging.warning(f"SinhalaSignLanguage.tokens_to_sign_dicts: ValueError for token='{token}': {e}")
                 # print(f"Warning: Could not map token '{token}' using defined rules: {e}")
                 # Fallback: attempt to spell if it's an unknown word and spelling rule exists
-                if self._sinhala_spelling_rule.is_applicable(token.lower(), Tags.UNKNOWN, context):
+                if self._sinhala_spelling_rule.is_applicable(token.lower(), Tags.DEFAULT, context):
                     try:
                         # print(f"Attempting to spell token: {token}")
                         spelling_sign_dicts = self._sinhala_spelling_rule.apply(token.lower())
@@ -153,12 +172,133 @@ class SinhalaSignLanguage(SignLanguage):
     ) -> List[Dict[str, Union[List[List[str]], List[float]]]]:
         # In PakistanSL, multiple rules of same priority can be chosen randomly.
         # Here, we take the first one that applies based on sorted rule list.
+        token_lower = token.lower()
+        print(f"[DEBUG] SinhalaSignLanguage._apply_rules: START for token='{token}', token_lower='{token_lower}', tag='{tag}'")
+        logging.info(f"SinhalaSignLanguage: Applying rules for token: '{token}' (lowercase: '{token_lower}'), tag: {tag}")
         for rule in self.mapping_rules:
-            if rule.is_applicable(token.lower(), tag, context):
-                return rule.apply(token.lower()) # apply() should return a list of sign_dicts
+            print(f"[DEBUG] SinhalaSignLanguage._apply_rules: Checking rule: {rule.__class__.__name__} for token_lower='{token_lower}'")
+            logging.debug(f"SinhalaSignLanguage: Checking rule: {rule.__class__.__name__} for token '{token_lower}'")
+            applicable = rule.is_applicable(token_lower, tag, context)
+            print(f"[DEBUG] SinhalaSignLanguage._apply_rules: Rule {rule.__class__.__name__} applicable: {applicable}")
+            if applicable:
+                logging.info(f"SinhalaSignLanguage: Rule '{rule.__class__.__name__}' is applicable for token '{token_lower}'. Applying...")
+                try:
+                    result = rule.apply(token_lower) # apply() should return a list of sign_dicts
+                    print(f"[DEBUG] SinhalaSignLanguage._apply_rules: Rule {rule.__class__.__name__} applied. Result: {result}")
+                    logging.info(f"SinhalaSignLanguage: Rule '{rule.__class__.__name__}' applied successfully for '{token_lower}'. Result: {result}")
+                    return result
+                except Exception as e:
+                    print(f"[DEBUG] SinhalaSignLanguage._apply_rules: EXCEPTION applying rule {rule.__class__.__name__}: {e}")
+                    logging.error(f"SinhalaSignLanguage: Error applying rule '{rule.__class__.__name__}' for token '{token_lower}': {e}", exc_info=True)
+                    # Optionally re-raise or handle, for now, let it fall through to the general ValueError
 
+        print(f"[DEBUG] SinhalaSignLanguage._apply_rules: No applicable rule found for token_lower='{token_lower}'. Raising ValueError.")
+        logging.warning(f"SinhalaSignLanguage: No applicable rule found for token '{token}' (lowercase: '{token_lower}').")
         raise ValueError(f"No applicable rule found for token '{token}'.")
 
+    # <<< REMOVE THIS DUPLICATE METHOD DEFINITION >>>
+    # def tokens_to_sign_dicts(
+    #     self,
+    #     tokens: Iterable[str],
+    #     tags: Optional[Iterable[Any]] = None,
+    #     contexts: Optional[Iterable[Any]] = None,
+    # ) -> List[Dict[str, Union[List[List[str]], List[float]]]]:
+    #     if isinstance(tokens, str):
+    #         tokens = [tokens]
+    #     if not tags:
+    #         tags = [Tags.DEFAULT for _ in tokens]
+    #     if not contexts:
+    #         contexts = [None for _ in tokens]
+
+    #     sign_dicts_list = []
+    #     print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: START. Received tokens: {list(tokens)}, tags: {list(tags)}")
+    #     logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Received tokens: {list(tokens)}, tags: {list(tags)}")
+    #     for token, tag, context in zip(tokens, tags, contexts):
+    #         print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: Processing token='{token}', tag='{tag}'")
+    #         logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Processing token='{token}', tag='{tag}'")
+    #         try:
+    #             # _apply_rules expects a single token and returns a list of sign_dicts for that token
+    #             # (often just one dict, but rules like number chunking can produce multiple)
+    #             token_sign_dicts = self._apply_rules(token, tag, context)
+    #             print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: For token='{token}', _apply_rules returned: {token_sign_dicts}")
+    #             logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: For token='{token}', _apply_rules returned: {token_sign_dicts}")
+    #             sign_dicts_list.extend(token_sign_dicts)
+    #         except ValueError as e:
+    #             print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: ValueError for token='{token}': {e}")
+    #             logging.warning(f"SinhalaSignLanguage.tokens_to_sign_dicts: ValueError for token='{token}': {e}")
+    #             # print(f"Warning: Could not map token '{token}' using defined rules: {e}")
+    #             # Fallback: attempt to spell if it's an unknown word and spelling rule exists
+    #             if self._sinhala_spelling_rule.is_applicable(token.lower(), Tags.DEFAULT, context):
+    #                 try:
+    #                     # print(f"Attempting to spell token: {token}")
+    #                     print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: Attempting fallback spelling for token='{token}'")
+    #                     spelling_sign_dicts = self._sinhala_spelling_rule.apply(token.lower())
+    #                     print(f"[DEBUG] SinhalaSignLanguage.tokens_to__sign_dicts: Fallback spelling returned: {spelling_sign_dicts}")
+    #                     sign_dicts_list.extend(spelling_sign_dicts)
+    #                     continue
+    #                 except Exception as spell_e:
+    #                     print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: Fallback spelling EXCEPTION for '{token}': {spell_e}")
+    #                     # print(f"Spelling also failed for '{token}': {spell_e}")
+    #                     pass # Fall through to raise original error or handle as truly unknown
+                
+    #             # If no rule (including spelling fallback) worked, raise or return placeholder
+    #             # For now, re-raising to make it explicit.
+    #             print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: No rule or fallback worked for token='{token}'. Raising ValueError.")
+    #             raise ValueError(f"No SLSL sign/rule could be inferred for token '{token}'. Original error: {e}")
+    #     print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: END. Returning sign_dicts_list: {sign_dicts_list}")
+    #     return sign_dicts_list
+    # <<< END OF REMOVAL >>>
+
+    def restructure_sentence(
+        self,
+        sentence: Iterable[str],
+        tags: Optional[Iterable[Any]] = None,
+        contexts: Optional[Iterable[Any]] = None,
+    ) -> List[Dict[str, Union[List[List[str]], List[float]]]]:
+        if isinstance(tokens, str):
+            tokens = [tokens]
+        if not tags:
+            tags = [Tags.DEFAULT for _ in tokens]
+        if not contexts:
+            contexts = [None for _ in tokens]
+
+        sign_dicts_list = []
+        print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: START. Received tokens: {list(tokens)}, tags: {list(tags)}")
+        logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Received tokens: {list(tokens)}, tags: {list(tags)}")
+        for token, tag, context in zip(tokens, tags, contexts):
+            print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: Processing token='{token}', tag='{tag}'")
+            logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Processing token='{token}', tag='{tag}'")
+            try:
+                # _apply_rules expects a single token and returns a list of sign_dicts for that token
+                # (often just one dict, but rules like number chunking can produce multiple)
+                token_sign_dicts = self._apply_rules(token, tag, context)
+                print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: For token='{token}', _apply_rules returned: {token_sign_dicts}")
+                logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: For token='{token}', _apply_rules returned: {token_sign_dicts}")
+                sign_dicts_list.extend(token_sign_dicts)
+            except ValueError as e:
+                print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: ValueError for token='{token}': {e}")
+                logging.warning(f"SinhalaSignLanguage.tokens_to_sign_dicts: ValueError for token='{token}': {e}")
+                # print(f"Warning: Could not map token '{token}' using defined rules: {e}")
+                # Fallback: attempt to spell if it's an unknown word and spelling rule exists
+                if self._sinhala_spelling_rule.is_applicable(token.lower(), Tags.DEFAULT, context):
+                    try:
+                        # print(f"Attempting to spell token: {token}")
+                        print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: Attempting fallback spelling for token='{token}'")
+                        spelling_sign_dicts = self._sinhala_spelling_rule.apply(token.lower())
+                        print(f"[DEBUG] SinhalaSignLanguage.tokens_to__sign_dicts: Fallback spelling returned: {spelling_sign_dicts}")
+                        sign_dicts_list.extend(spelling_sign_dicts)
+                        continue
+                    except Exception as spell_e:
+                        print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: Fallback spelling EXCEPTION for '{token}': {spell_e}")
+                        # print(f"Spelling also failed for '{token}': {spell_e}")
+                        pass # Fall through to raise original error or handle as truly unknown
+                
+                # If no rule (including spelling fallback) worked, raise or return placeholder
+                # For now, re-raising to make it explicit.
+                print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: No rule or fallback worked for token='{token}'. Raising ValueError.")
+                raise ValueError(f"No SLSL sign/rule could be inferred for token '{token}'. Original error: {e}")
+        print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: END. Returning sign_dicts_list: {sign_dicts_list}")
+        return sign_dicts_list
 
     def restructure_sentence(
         self,
@@ -201,11 +341,11 @@ class SinhalaSignLanguage(SignLanguage):
 
     def __get_direct_mapping_rule(self, priority=1):
         return DirectMappingRule(
-            map_dict={
+            priority=priority,
+            token_to_object={
                 w: [sd] for w, sd in self.word_to_sign_dict.items()
                 if self.SignDictKeys.SIGNS.value in sd and self.SignDictKeys.WEIGHTS.value in sd
-            },
-            priority=priority
+            }
         )
 
     def __get_sinhala_spelling_rule(self, priority=5):
@@ -223,8 +363,8 @@ class SinhalaSignLanguage(SignLanguage):
             return LambdaMappingRule(is_applicable_function=lambda t, tg, c: False, apply_function=lambda t: [], priority=priority)
 
         return CharacterByCharacterMappingRule(
-            character_to_sign_dict_map=sinhala_letter_signs,
-            applicable_tags={Tags.UNKNOWN, Tags.NAME, Tags.DEFAULT}, # When to apply spelling
+            token_to_object=sinhala_letter_signs,
+            allowed_tags={Tags.DEFAULT, Tags.NAME}, # When to apply spelling
             priority=priority
         )
 
