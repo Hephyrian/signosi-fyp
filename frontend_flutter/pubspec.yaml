@@ -40,6 +40,8 @@ dependencies:
   flutter_dotenv: ^5.2.1
   speech_to_text: 7.0.0
   permission_handler: ^11.3.0
+  video_player: ^2.8.2
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:
@@ -67,6 +69,7 @@ flutter:
   assets:
     - assets/images/signosi_logo_hand.png
     - assets/google-credentials.json
+    - .env
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

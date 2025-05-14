@@ -1,8 +1,32 @@
 import 'package:flutter/material.dart';
 import 'screens/speech_screen.dart';
+import 'screens/debug_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  int _logoTapCount = 0;
+  final int _requiredTapsForDebug = 5;
+  
+  void _handleLogoTap() {
+    setState(() {
+      _logoTapCount++;
+    });
+    
+    if (_logoTapCount >= _requiredTapsForDebug) {
+      // Reset count and navigate to debug screen
+      _logoTapCount = 0;
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const DebugScreen()),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -11,12 +35,15 @@ class HomeScreen extends StatelessWidget {
         leadingWidth: 150, // Increased width to accommodate logo and text
         leading: Row(
           children: [
-            Padding(
-              padding: const EdgeInsets.only(left: 16.0),
-              child: Image.asset(
-                'assets/images/signosi_logo_hand.png', // Placeholder - replace with your actual asset
-                height: 24, // Adjust as needed
-                // You'll need to add this asset to your pubspec.yaml and assets folder
+            GestureDetector(
+              onTap: _handleLogoTap,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 16.0),
+                child: Image.asset(
+                  'assets/images/signosi_logo_hand.png', // Placeholder - replace with your actual asset
+                  height: 24, // Adjust as needed
+                  // You'll need to add this asset to your pubspec.yaml and assets folder
+                ),
               ),
             ),
           ],
@@ -58,9 +85,8 @@ class HomeScreen extends StatelessWidget {
             MaterialPageRoute(builder: (context) => const SpeechScreen()),
           );
         },
-        backgroundColor: Colors.orange, // Theme primary or custom
+        backgroundColor: Colors.orange,
         child: const Icon(Icons.mic, color: Colors.white, size: 40),
-        // elevation: 2.0, // M3 might prefer lower/no elevation for FABs if docked
       ),
     );
   }
