@@ -153,17 +153,17 @@ if slt_models:
         except Exception as te:
             logging.error(f"Error initializing custom Sinhala model for video: {te}. Skipping this model.", exc_info=True)
 
-        # # Model for English text to Sinhala Sign Language (Temporarily Disabled due to Vocab loading error)
-        # try:
-        #     logging.info("Attempting to initialize English model (en_to_sinhala-sl)...")
-        #     models["en_to_sinhala-sl"] = slt_models.ConcatenativeSynthesis(
-        #         text_language="en",
-        #         sign_language=sinhala_sign_language,
-        #         sign_format="video"
-        #     )
-        #     logging.info("English model initialized successfully.")
-        # except Exception as te:
-        #     logging.error(f"Error initializing English model: {te}. Skipping this model.", exc_info=True)
+        # Model for English text to Sinhala Sign Language (Temporarily Disabled due to Vocab loading error)
+        try:
+            logging.info("Attempting to initialize English model (en_to_sinhala-sl)...")
+            models["en_to_sinhala-sl"] = slt_models.ConcatenativeSynthesis(
+                text_language="en",
+                sign_language=sinhala_sign_language,
+                sign_format="video"
+            )
+            logging.info("English model initialized successfully.")
+        except Exception as te:
+            logging.error(f"Error initializing English model: {te}. Skipping this model.", exc_info=True)
 
         if models:
             logging.info("Some sign language translation models initialized successfully.")

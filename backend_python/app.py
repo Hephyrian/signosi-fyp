@@ -35,43 +35,6 @@ def create_app(config_object_name=None):
         print(f"Could not import or register translate_bp: {e}")
         # Potentially raise an error or log more severely if this is critical
 
-    # --- Original routes (can be moved to their own blueprints later) ---
-    @flask_app.route('/')
-    def hello():
-        return "Python backend is running! (Refactored with Blueprints and App Factory)"
-
-    @flask_app.route('/api/speech-to-text/realtime', methods=['POST'])
-    def realtime_speech_to_text():
-        # Placeholder for real-time speech recognition logic
-        return jsonify({"message": "Real-time endpoint hit"}), 200
-
-    @flask_app.route('/api/speech-to-text/asynchronous', methods=['POST'])
-    def asynchronous_speech_to_text():
-        if 'audio_file' not in request.files:
-            return jsonify({"error": "No audio file part"}), 400
-        file = request.files['audio_file']
-        if file.filename == '':
-            return jsonify({"error": "No selected file"}), 400
-        if file:
-            # Process file here
-            return jsonify({"message": f"File {file.filename} received. Asynchronous processing started."}), 202
-
-    @flask_app.route('/api/auth/login', methods=['POST'])
-    def login():
-        return jsonify({"message": "Login endpoint placeholder"}), 200
-
-    @flask_app.route('/api/auth/register', methods=['POST'])
-    def register():
-        return jsonify({"message": "Register endpoint placeholder"}), 200
-
-    @flask_app.route('/api/data', methods=['GET'])
-    def get_data():
-        return jsonify({"message": "Get data endpoint placeholder"}), 200
-
-    @flask_app.route('/api/data', methods=['POST'])
-    def post_data():
-        return jsonify({"message": "Post data endpoint placeholder"}), 200
-    
     # Add route to serve static media files (landmark data)
     @flask_app.route('/media/<path:filename>')
     def serve_media(filename):
