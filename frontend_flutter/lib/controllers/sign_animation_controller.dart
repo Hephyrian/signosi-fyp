@@ -21,15 +21,30 @@ class SignAnimationController extends ChangeNotifier {
   bool get isLastSign => _currentSignIndex >= _signs.length - 1;
   bool get isFirstSign => _currentSignIndex <= 0;
   int get totalSigns => _signs.length;
-  
+
+  // Get flattened landmark data for the current frame
+  List<double> get currentFrameLandmarks {
+    if (_signs.isEmpty || _currentSignIndex >= _signs.length || _signs[_currentSignIndex].landmarkData == null || _signs[_currentSignIndex].landmarkData!.isEmpty) {
+      return [];
+    }
+    final frameData = _signs[_currentSignIndex].landmarkData![_currentFrameIndex];
+    // Flatten the list of lists into a single list of doubles
+    return frameData.expand((landmark) => [landmark]).toList();
+  }
+
   // Should we show video for the current sign?
   bool shouldShowVideo(Sign sign) {
     if (!_useVideoIfAvailable) return false;
-    
+
     // Check if the sign has a valid media path and the file exists
+    // This logic might need adjustment if mediaPath is now a URL
+    // For now, keeping the original logic but it might be obsolete
     if (sign.mediaPath.isNotEmpty) {
-      final file = File(sign.mediaPath);
-      return file.existsSync();
+       // Assuming mediaPath is a local file path for video check
+       // If we are only using landmark data, this check might be removed
+      // final file = File(sign.mediaPath);
+      // return file.existsSync();
+      return false; // Assuming we are not using local video files anymore
     }
     return false;
   }
@@ -52,11 +67,11 @@ class SignAnimationController extends ChangeNotifier {
   // Start animation
   void startAnimation() {
     if (_signs.isEmpty || _isPlaying) return;
-    
+
     final currentSign = _signs[_currentSignIndex];
-    // Don't animate if we're using video or no landmark data
-    if (shouldShowVideo(currentSign) || !hasLandmarkData(currentSign)) return;
-    
+    // Start animation only if landmark data is available
+    if (!hasLandmarkData(currentSign)) return;
+
     _isPlaying = true;
     _startLandmarkAnimation();
     notifyListeners();
@@ -111,20 +126,23 @@ class SignAnimationController extends ChangeNotifier {
         notifyListeners();
       } else {
         stopAnimation();
-        
+
         // Auto-advance to next sign if available
         if (_currentSignIndex < _signs.length - 1) {
           _currentSignIndex++;
           _currentFrameIndex = 0;
-          
+
           // Start the next sign if it has landmark data
-          if (!shouldShowVideo(_signs[_currentSignIndex]) && 
-              hasLandmarkData(_signs[_currentSignIndex])) {
+          if (hasLandmarkData(_signs[_currentSignIndex])) {
             _startLandmarkAnimation();
           } else {
             _isPlaying = false;
           }
           notifyListeners();
+        } else {
+           // Animation finished for the last sign
+           _isPlaying = false;
+           notifyListeners();
         }
       }
     });
@@ -135,4 +153,4 @@ class SignAnimationController extends ChangeNotifier {
     _animationTimer?.cancel();
     super.dispose();
   }
-} 
+}

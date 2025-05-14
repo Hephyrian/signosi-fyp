@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 import os
 import sys
 from dotenv import load_dotenv
@@ -72,6 +72,13 @@ def create_app(config_object_name=None):
     def post_data():
         return jsonify({"message": "Post data endpoint placeholder"}), 200
     
+    # Add route to serve static media files (landmark data)
+    @flask_app.route('/media/<path:filename>')
+    def serve_media(filename):
+        # Assuming the media path in the response is relative to the media directory
+        media_dir = os.path.join(flask_app.root_path, 'sign-language-translator', 'sign_language_translator', 'assets', 'datasets', 'lk-custom', 'media')
+        return send_from_directory(media_dir, filename)
+
     return flask_app
 
 # Create the Flask app instance using the factory

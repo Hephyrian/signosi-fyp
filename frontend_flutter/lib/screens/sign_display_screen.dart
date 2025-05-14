@@ -5,12 +5,12 @@ import '../widgets/landmark_painter.dart'; // Import the custom painter
 import 'package:http/http.dart' as http; // Import http package
 import 'dart:convert'; // Import for JSON decoding
 import 'dart:async'; // Import for Timer
-import 'dart:io';
+import 'dart:io'; // Needed for Platform
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 
-import '../widgets/sign_video_player.dart';
+// import '../widgets/sign_video_player.dart'; // No longer using video player directly
 import '../models/translation_response.dart';
 import '../services/translation_service.dart';
 import '../controllers/sign_animation_controller.dart';
@@ -63,17 +63,47 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
 
     try {
       final fps = int.tryParse(dotenv.env['ANIMATION_FPS'] ?? '30') ?? 30;
-      
+      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://127.0.0.1:8080'; // Get backend URL
+
       print('Fetching translation for text: ${widget.textToTranslate}, language: ${widget.sourceLanguage}');
       final response = await TranslationService.translateTextToSign(
-        widget.textToTranslate, 
-        widget.sourceLanguage
+        widget.textToTranslate,
+        widget.sourceLanguage,
       );
-      
+
       print('Translation response received with ${response.signs.length} signs');
       if (response.signs.isNotEmpty) {
-        _controller.setSignData(response.signs, fps: fps);
-        _controller.startAnimation(); // Will only animate if appropriate
+        // Fetch landmark data for each sign
+        final List<Sign> signsWithLandmarks = [];
+        for (final sign in response.signs) {
+          if (sign.mediaPath.isNotEmpty) {
+            try {
+              final landmarkData = await _fetchLandmarkData(backendUrl, sign.mediaPath);
+              signsWithLandmarks.add(Sign(
+                mediaPath: sign.mediaPath, // Keep original mediaPath if needed
+                landmarkData: landmarkData,
+              ));
+            } catch (e) {
+              print('Error fetching landmark data for ${sign.mediaPath}: $e');
+              // Add sign without landmark data if fetching fails
+              signsWithLandmarks.add(sign);
+            }
+          } else {
+             // Add sign without landmark data if mediaPath is empty
+            signsWithLandmarks.add(sign);
+          }
+        }
+
+        if (signsWithLandmarks.any((sign) => sign.landmarkData != null)) {
+           _controller.setSignData(signsWithLandmarks, fps: fps);
+           _controller.startAnimation(); // Will only animate if appropriate
+        } else {
+           setState(() {
+             _errorMessage = 'No landmark data available for animation.';
+           });
+           print('No landmark data available for animation.');
+        }
+
       } else {
         setState(() {
           _errorMessage = 'No signs received for the translation.';
@@ -91,6 +121,35 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
       });
     }
   }
+
+  // Function to fetch landmark data from backend
+  Future<List<List<double>>> _fetchLandmarkData(String baseUrl, String mediaPath) async {
+     // Extract the relative path from the full local path
+     // Extract the path relative to the backend_python directory
+     final mediaPathSegments = mediaPath.split(Platform.isWindows ? '\\' : '/');
+     final backendDirIndex = mediaPathSegments.indexOf('backend_python');
+     String relativePath = mediaPathSegments.sublist(backendDirIndex + 1).join('/');
+
+     // Construct the full URL for the landmark data file
+     final url = Uri.parse('$baseUrl/$relativePath');
+     print('Fetching landmark data from: $url');
+
+     final response = await http.get(url);
+
+     if (response.statusCode == 200) {
+       // Assuming the landmark data is a JSON array of arrays of doubles
+       final List<dynamic> framesJson = jsonDecode(response.body) as List<dynamic>;
+       final landmarkData = framesJson
+           .map((frame) => (frame as List<dynamic>).cast<double>().toList())
+           .toList();
+       print('Successfully fetched and parsed landmark data.');
+       return landmarkData;
+     } else {
+       print('Failed to fetch landmark data: ${response.statusCode} - ${response.body}');
+       throw Exception('Failed to fetch landmark data: ${response.statusCode} - ${response.body}');
+     }
+  }
+
 
   @override
   void dispose() {
@@ -282,92 +341,102 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
     return Consumer<SignAnimationController>(
       builder: (context, controller, child) {
         final currentSign = controller.currentSign;
-        
+
         if (currentSign == null) {
           return const Center(
             child: Text('No signs available for this text.'),
           );
         }
 
-        final fileExists = _checkFileExists(currentSign.mediaPath);
-        
-        // Show signs from the backend
-        return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 300),
-          child: fileExists
-              ? _buildVideoPlayer(currentSign, controller)
-              : _buildMediaPathDisplay(currentSign, controller),
-        );
+        // Check if landmark data is available
+        if (currentSign.landmarkData != null && currentSign.landmarkData!.isNotEmpty) {
+          // Use LandmarkPainter to render animation
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Pass landmark data to a widget that uses LandmarkPainter
+                // This assumes LandmarkPainter can be used directly or via a wrapper widget
+                // that takes landmark data and animates it.
+                // If SignAnimationController handles the animation state and provides
+                // the current frame's landmarks, we might need a different approach.
+                // For now, assuming LandmarkPainter needs the full data and controller
+                // manages the animation progress.
+                Expanded(
+                   child: CustomPaint(
+                     painter: LandmarkPainter(
+                       landmarkData: controller.currentFrameLandmarks, // Use the getter
+                       numberOfPoseLandmarks: 33, // Assuming 33 pose landmarks
+                       numberOfHandLandmarks: 21, // Assuming 21 hand landmarks per hand (total 42 for two hands, but painter expects per hand?) - Let's assume 21 per hand for now based on typical MediaPipe output structure
+                       isWorldLandmarks: false, // Assuming 2D image landmarks
+                     ),
+                     child: Container(), // Empty container as child
+                   ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Sign ${controller.currentSignIndex + 1} of ${controller.totalSigns}',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Animating from landmark data',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                 const SizedBox(height: 16),
+                 ElevatedButton.icon(
+                   onPressed: () {
+                     controller.restartCurrentSign();
+                   },
+                   icon: const Icon(Icons.refresh),
+                   label: const Text('Play Again'),
+                   style: ElevatedButton.styleFrom(
+                     backgroundColor: Colors.orangeAccent,
+                     foregroundColor: Colors.white,
+                   ),
+                 ),
+              ],
+            ),
+          );
+        } else {
+          // If no landmark data, display media path or a placeholder
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.sign_language, size: 64, color: Colors.orange),
+                const SizedBox(height: 16),
+                Text(
+                  'No landmark data available for animation.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Media path: ${currentSign.mediaPath}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    // Maybe retry fetching or indicate the issue
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orangeAccent,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
       },
     );
   }
-  
-  bool _checkFileExists(String path) {
-    try {
-      return File(path).existsSync();
-    } catch (e) {
-      print('Error checking file: $e');
-      return false;
-    }
-  }
-  
-  Widget _buildVideoPlayer(Sign sign, SignAnimationController controller) {
-    final filename = TranslationService.getFilenameFromPath(sign.mediaPath);
-    
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SignVideoPlayer(videoPath: sign.mediaPath),
-            const SizedBox(height: 16),
-            Text(
-              'Sign ${controller.currentSignIndex + 1} of ${controller.totalSigns}',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              filename,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
-  Widget _buildMediaPathDisplay(Sign sign, SignAnimationController controller) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.sign_language, size: 64, color: Colors.orange),
-          const SizedBox(height: 16),
-          Text(
-            'Media path: ${sign.mediaPath}',
-            style: Theme.of(context).textTheme.bodyMedium,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Sign ${controller.currentSignIndex + 1} of ${controller.totalSigns}',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: () {
-              controller.restartCurrentSign();
-            },
-            icon: const Icon(Icons.refresh),
-            label: const Text('Play Again'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orangeAccent,
-              foregroundColor: Colors.white,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // Removed _checkFileExists and _buildVideoPlayer as they are no longer used
+  // Removed _buildMediaPathDisplay as its logic is integrated into _buildMainContent
 }
