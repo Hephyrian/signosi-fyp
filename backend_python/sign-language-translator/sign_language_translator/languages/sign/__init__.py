@@ -8,9 +8,9 @@ from sign_language_translator.languages.sign.mapping_rules import (
     LambdaMappingRule,
     MappingRule,
 )
-from sign_language_translator.languages.sign.pakistan_sign_language import (
-    PakistanSignLanguage,
-)
+# from sign_language_translator.languages.sign.pakistan_sign_language import (
+#     PakistanSignLanguage,
+# )
 from sign_language_translator.languages.sign.sign_language import SignLanguage
 from sign_language_translator.languages.sign.sinhala_sign_language import (
     SinhalaSignLanguage,
@@ -18,7 +18,7 @@ from sign_language_translator.languages.sign.sinhala_sign_language import (
 
 __all__ = [
     "SignLanguage",
-    "PakistanSignLanguage",
+    # "PakistanSignLanguage",
     "SinhalaSignLanguage",
     "MappingRule",
     "LambdaMappingRule",

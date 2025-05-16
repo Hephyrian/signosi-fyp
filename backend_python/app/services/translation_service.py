@@ -39,7 +39,7 @@ try:
     # Vision and landmarks
     from sign_language_translator.vision.video.video import Video
     from sign_language_translator.vision.landmarks.landmarks import Landmarks
-    from sign_language_translator.models.video_embedding.mediapipe_landmarks_model import MediaPipeLandmarksModel
+    # from sign_language_translator.models.video_embedding.mediapipe_landmarks_model import MediaPipeLandmarksModel
 
 except ImportError as e:
     logging.error(f"Error importing sign_language_translator or its components: {e}")
@@ -145,7 +145,7 @@ if slt_models:
         try:
             logging.info("Attempting to initialize Sinhala model (si_to_sinhala-sl) using CustomSinhalaConcatenativeSynthesis...")
             models["si_to_sinhala-sl"] = CustomSinhalaConcatenativeSynthesis( # Use the custom class
-                text_language="si",
+                text_language=SinhalaTextLanguage(), # Corrected NameError
                 sign_language=sinhala_sign_language,
                 sign_format="video",  # Using video format
             )

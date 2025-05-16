@@ -36,11 +36,9 @@ Utilities:
 
 from sign_language_translator.models import (
     language_models,
-    sign_to_text,
     text_embedding,
     text_to_sign,
     utils,
-    video_embedding,
 )
 from sign_language_translator.models._utils import get_model
 from sign_language_translator.models.language_models import (
@@ -56,18 +54,12 @@ from sign_language_translator.models.text_embedding import (
 )
 from sign_language_translator.models.text_to_sign import ConcatenativeSynthesis
 from sign_language_translator.models.text_to_sign.t2s_model import TextToSignModel
-from sign_language_translator.models.video_embedding import (
-    MediaPipeLandmarksModel,
-    VideoEmbeddingModel,
-)
 
 __all__ = [
     "get_model",
     "language_models",
-    "sign_to_text",
     "text_to_sign",
     "utils",
-    "video_embedding",
     "text_embedding",
     "ConcatenativeSynthesis",
     "NgramLanguageModel",
@@ -76,8 +68,6 @@ __all__ = [
     "MixerLM",
     "LanguageModel",
     "TextToSignModel",
-    "MediaPipeLandmarksModel",
-    "VideoEmbeddingModel",
     "TextEmbeddingModel",
     "VectorLookupModel",
 ]

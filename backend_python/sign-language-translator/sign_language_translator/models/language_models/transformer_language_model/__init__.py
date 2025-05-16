@@ -13,7 +13,6 @@ Components:
 
 from sign_language_translator.models.language_models.transformer_language_model import (
     layers,
-    train,
 )
 from sign_language_translator.models.language_models.transformer_language_model.model import (
     TransformerLanguageModel,
@@ -22,5 +21,4 @@ from sign_language_translator.models.language_models.transformer_language_model.
 __all__ = [
     "TransformerLanguageModel",
     "layers",
-    "train",
 ]
