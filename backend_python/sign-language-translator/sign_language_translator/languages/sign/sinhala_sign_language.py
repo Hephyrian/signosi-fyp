@@ -350,13 +350,36 @@ class SinhalaSignLanguage(SignLanguage):
             and self.SignDictKeys.SIGNS.value in sign_dict # Ensure it's a valid sign_dict
         }
         
+        # If no letter signs are defined at all, spelling is impossible.
+        # Return a dummy rule that is never applicable or does nothing.
         if not sinhala_letter_signs:
-            # Return a dummy rule that is never applicable if no letter signs are defined
-            return LambdaMappingRule(is_applicable_function=lambda t, tg, c: False, apply_function=lambda t: [], priority=priority)
+            logging.warning("SinhalaSignLanguage: No Sinhala letter signs found in word_to_sign_dict. Spelling rule will be ineffective.")
+            return LambdaMappingRule(
+                is_applicable_function=lambda t, tg, c: False, # Never applicable
+                apply_function=lambda t: [], # Does nothing
+                priority=priority
+            )
 
-        return CharacterByCharacterMappingRule(
-            token_to_object=sinhala_letter_signs,
-            allowed_tags={Tags.DEFAULT, Tags.NAME}, # When to apply spelling
+        # Define a robust apply function for spelling
+        def robust_apply_spelling_function(token_string: str) -> List[Dict]:
+            spelled_sign_dicts = []
+            for char_in_token in token_string:
+                # Ensure char_in_token is treated as a key (string) for the dictionary
+                char_key = str(char_in_token)
+                char_sign_dict = sinhala_letter_signs.get(char_key)
+                if char_sign_dict:
+                    spelled_sign_dicts.append(char_sign_dict)
+                else:
+                    # Log only once per unique missing character during an app run if it becomes too noisy
+                    logging.warning(
+                        f"SinhalaSignLanguage: Spelling: Character '{char_key}' in token '{token_string}' "
+                        f"has no defined sign in sinhala_letter_signs. Skipping this character for spelling."
+                    )
+            return spelled_sign_dicts
+
+        return LambdaMappingRule(
+            is_applicable_function=lambda token, tag, context: tag in {Tags.DEFAULT, Tags.NAME},
+            apply_function=robust_apply_spelling_function,
             priority=priority
         )
 
