@@ -124,14 +124,17 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
 
   // Function to fetch landmark data from backend
   Future<List<List<double>>> _fetchLandmarkData(String baseUrl, String mediaPath) async {
-     // Extract the relative path from the full local path
-     // Extract the path relative to the backend_python directory
-     final mediaPathSegments = mediaPath.split(Platform.isWindows ? '\\' : '/');
-     final backendDirIndex = mediaPathSegments.indexOf('backend_python');
-     String relativePath = mediaPathSegments.sublist(backendDirIndex + 1).join('/');
+     // mediaPath is the S3 pre-signed URL that directly points to the landmark data (JSON).
+     // We should fetch from this URL directly.
 
-     // Construct the full URL for the landmark data file
-     final url = Uri.parse('$baseUrl/$relativePath');
+     // OLD LOGIC (Incorrect):
+     // final mediaPathSegments = mediaPath.split(Platform.isWindows ? '\' : '/');
+     // final backendDirIndex = mediaPathSegments.indexOf('backend_python');
+     // String relativePath = mediaPathSegments.sublist(backendDirIndex + 1).join('/');
+     // final url = Uri.parse('$baseUrl/$relativePath');
+
+     // CORRECTED LOGIC:
+     final url = Uri.parse(mediaPath); // Use the S3 URL (mediaPath) directly
      print('Fetching landmark data from: $url');
 
      final response = await http.get(url);
