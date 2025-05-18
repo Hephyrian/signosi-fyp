@@ -12,3 +12,5 @@ mediapipe==0.10.13
 deep_translator==1.11.4
 sign-language-translator
 boto3
+opencv-python
+pandas
