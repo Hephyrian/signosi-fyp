@@ -18,6 +18,7 @@ def create_app(config_object_name=None):
     Initializes the Flask app, loads configuration, and registers blueprints.
     """
     flask_app = Flask(__name__)
+    flask_app.config['JSON_AS_ASCII'] = False # Ensure Unicode characters are not escaped in JSON responses
 
     if config_object_name:
         flask_app.config.from_object(config_object_name)

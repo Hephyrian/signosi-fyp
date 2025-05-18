@@ -103,68 +103,65 @@ except (NameError, AttributeError):
 # Custom ConcatenativeSynthesis model for Sinhala SLSL
 class CustomSinhalaConcatenativeSynthesis(slt_models.ConcatenativeSynthesis if slt_models else object):
     def _prepare_resource_name(self, label: str, person=None, camera=None, sep="_") -> dict:
-        logging.debug(f"CustomSinhalaConcatenativeSynthesis._prepare_resource_name called with label: '{label}'")
+        logging.debug(f"CustomSinhalaConcatenativeSynthesis._prepare_resource_name called for label: '{label}'")
         
-        # Default media_type, can be overridden if found in entry
-        # Fallback path if S3 fails or not configured
-        fallback_media_path = super()._prepare_resource_name(label, person, camera, sep)
-        # Default to "video" if not specified, or handle as unknown based on your logic
-        # However, our populate_lk_custom_mapping.py ensures 'media_type' is present.
-        resource_info = {"media_path": fallback_media_path, "media_type": "video", "label": label}
+        resource_info = {"label": label} # Initialize with label
 
-        if not s3_client:
-            logging.error("CustomSinhalaConcatenativeSynthesis: S3 client not initialized. Cannot fetch from S3. Returning fallback resource info.")
-            # Use super class to get a local path if possible, or a placeholder
-            resource_info["media_path"] = super()._prepare_resource_name(label, person, camera, sep)
-            # Attempt to get media_type even for fallback from mapping data if label exists
-            if isinstance(_custom_lk_mapping_data, dict) and label in _custom_lk_mapping_data:
-                entry_fallback = _custom_lk_mapping_data[label]
-                resource_info["media_type"] = entry_fallback.get("media_type", "video") # Default if somehow missing
-            return resource_info
-
-        if not isinstance(_custom_lk_mapping_data, dict) or not _custom_lk_mapping_data:
-            logging.error("CustomSinhalaConcatenativeSynthesis: Custom mapping data not loaded or empty. Returning fallback resource info.")
-            resource_info["media_path"] = super()._prepare_resource_name(label, person, camera, sep)
-            return resource_info
-
-        if label in _custom_lk_mapping_data:
+        # Check if the label exists in the custom mapping and if mapping data is loaded
+        if isinstance(_custom_lk_mapping_data, dict) and label in _custom_lk_mapping_data:
             entry = _custom_lk_mapping_data[label]
             s3_object_key = entry.get("media_path")
-            # Ensure media_type is fetched from the entry
-            media_type_from_entry = entry.get("media_type", "video") # Default to "video" if not present
-            resource_info["media_type"] = media_type_from_entry
+            # Default to "video" if media_type is not specified in the mapping for this entry
+            media_type_from_entry = entry.get("media_type", "video") 
 
-            if s3_object_key:
-                s3_object_key = s3_object_key.replace("\\\\", "/")
-                try:
-                    presigned_url = s3_client.generate_presigned_url(
-                        'get_object',
-                        Params={'Bucket': AWS_S3_BUCKET_NAME, 'Key': s3_object_key},
-                        ExpiresIn=30
-                    )
-                    logging.info(f"CustomSinhalaConcatenativeSynthesis: Generated pre-signed URL for S3 object key '{s3_object_key}': '{presigned_url}'")
-                    resource_info["media_path"] = presigned_url # Update media_path with S3 URL
-                    return resource_info # Return the full dict
-                except NoCredentialsError:
-                    logging.error("CustomSinhalaConcatenativeSynthesis: AWS credentials not found. Cannot generate pre-signed URL.")
-                except ClientError as e:
-                    logging.error(f"CustomSinhalaConcatenativeSynthesis: Error generating pre-signed URL for S3 object key '{s3_object_key}': {e}", exc_info=True)
-                except Exception as e:
-                    logging.error(f"CustomSinhalaConcatenativeSynthesis: Unexpected error generating pre-signed URL for S3 object key '{s3_object_key}': {e}", exc_info=True)
-                
-                logging.warning(f"CustomSinhalaConcatenativeSynthesis: Failed to generate pre-signed URL for S3 object key '{s3_object_key}'. Using fallback path for this entry.")
-                # Fallback to local path if S3 URL fails, but media_type is still from entry
-                resource_info["media_path"] = super()._prepare_resource_name(label, person, camera, sep) # Get local/placeholder path
+            if not s3_object_key:
+                # Case: Label is in mapping, but its media_path (S3 key) is missing or empty.
+                logging.warning(f"Sign '{label}' is in custom mapping but 'media_path' (S3 key) is missing/empty. Marking as placeholder_missing.")
+                resource_info["media_path"] = label # Send label itself as path for identification by frontend
+                resource_info["media_type"] = "placeholder_missing"
                 return resource_info
-            else:
-                logging.warning(f"CustomSinhalaConcatenativeSynthesis: 'media_path' (S3 object key) not found for sign_id '{label}' in custom mapping. Using fallback path.")
-                resource_info["media_path"] = super()._prepare_resource_name(label, person, camera, sep) # Get local/placeholder path
+            
+            # Case: Label is in mapping and has an s3_object_key.
+            resource_info["media_type"] = media_type_from_entry # Use media_type from mapping
+
+            if not s3_client:
+                logging.error(f"S3 client not initialized, but sign '{label}' (mapped with S3 key '{s3_object_key}') requires S3. This is an operational error. Returning fallback path using superclass method.")
+                # This is an error accessing an EXPECTED sign, not "sign isn't added yet".
+                # The media_type from mapping is preserved.
+                resource_info["media_path"] = super()._prepare_resource_name(label, person, camera, sep)
                 return resource_info
-        else:
-            logging.warning(f"CustomSinhalaConcatenativeSynthesis: Sign_id '{label}' not found in custom mapping. Using fallback path and default media_type.")
-            # Fallback to local path and default "video" media_type
+
+            # Attempt to get S3 pre-signed URL as s3_client is available and s3_object_key is present
+            s3_object_key_processed = s3_object_key.replace("\\\\", "/") # Normalize path separators
+            try:
+                presigned_url = s3_client.generate_presigned_url(
+                    'get_object',
+                    Params={'Bucket': AWS_S3_BUCKET_NAME, 'Key': s3_object_key_processed},
+                    ExpiresIn=3600 # Increased from 30 seconds
+                )
+                logging.info(f"Generated S3 pre-signed URL for S3 object key '{s3_object_key_processed}' (label: '{label}').")
+                resource_info["media_path"] = presigned_url
+                return resource_info
+            except NoCredentialsError:
+                logging.error(f"CustomSinhalaConcatenativeSynthesis: AWS credentials not found. Cannot generate pre-signed URL for S3 key '{s3_object_key_processed}' (label: '{label}'). Returning fallback.", exc_info=True)
+            except ClientError as e:
+                logging.error(f"CustomSinhalaConcatenativeSynthesis: ClientError generating pre-signed URL for S3 key '{s3_object_key_processed}' (label: '{label}'): {e}. Returning fallback.", exc_info=True)
+            except Exception as e:
+                logging.error(f"CustomSinhalaConcatenativeSynthesis: Unexpected error generating pre-signed URL for S3 key '{s3_object_key_processed}' (label: '{label}'): {e}. Returning fallback.", exc_info=True)
+            
+            # Fallback if S3 URL generation failed for an expected sign. media_type is from mapping.
+            logging.warning(f"CustomSinhalaConcatenativeSynthesis: Failed to generate pre-signed URL for S3 object key '{s3_object_key_processed}' (label: '{label}'). Using fallback path from superclass method.")
             resource_info["media_path"] = super()._prepare_resource_name(label, person, camera, sep)
-            resource_info["media_type"] = "video" # Or some other default if appropriate
+            return resource_info
+        
+        else: # Case: Label is NOT in _custom_lk_mapping_data OR _custom_lk_mapping_data is not loaded/valid.
+            if not isinstance(_custom_lk_mapping_data, dict):
+                 logging.warning(f"Custom mapping data ('_custom_lk_mapping_data') not loaded or not a dict. Sign '{label}' cannot be checked against it. Marking as placeholder_missing.")
+            else: # _custom_lk_mapping_data is a dict, but label is not in it.
+                 logging.warning(f"Sign '{label}' not found in custom lk-dictionary-mapping.json. Marking as placeholder_missing.")
+            
+            resource_info["media_path"] = label # Send label itself as path for identification
+            resource_info["media_type"] = "placeholder_missing"
             return resource_info
 
     def _map_labels_to_sign(self, video_labels: list[str], person=None, camera=None, sep="_") -> list[dict]:
@@ -290,6 +287,44 @@ def translate_text_to_slsl(text, source_language_code="si"):
             logging.error(f"Translation returned unexpected result type: {type(result)}. Content: {result}")
             return {"error": "Translation failed to produce expected output format."}
 
+    except ValueError as ve: # Catch ValueErrors specifically
+        error_message = str(ve)
+        logging.error(f"ValueError during translation for text '{text}': {error_message}", exc_info=True)
+        # Try to extract the token if the error message matches the expected patterns
+        import re
+        match_inferred = re.search(r"No SLSL sign/rule could be inferred for token '(.+?)'", error_message)
+        match_applicable = re.search(r"No applicable rule found for token '(.+?)'", error_message)
+        
+        token = None
+        if match_inferred:
+            token = match_inferred.group(1)
+        elif match_applicable:
+            token = match_applicable.group(1)
+            
+        if token:
+            try:
+                # Attempt to decode if 'token' is a string of ASCII characters
+                # representing unicode escapes (e.g., r"\u0DB4\u0DCA")
+                # This will raise UnicodeEncodeError if 'token' already contains non-ASCII chars (i.e., it is already decoded).
+                potential_decoded_token = bytes(token, 'ascii').decode('unicode_escape')
+                # If decoding produced something different and the original looked like escapes, prefer it.
+                if potential_decoded_token != token and ("\\u" in token or "\\U" in token):
+                    token = potential_decoded_token
+            except UnicodeEncodeError:
+                # This means 'token' already contained non-ASCII characters (likely already decoded).
+                # So, we use 'token' as is.
+                pass
+            except Exception:
+                # For any other errors during decoding, fall back to using the original token.
+                pass
+
+            user_friendly_error = f"The word '{token}' could not be translated as it is not currently in our sign dictionary or has no processing rule."
+            return {"error": user_friendly_error}
+        else:
+            # Fallback for other ValueErrors that don't match the pattern
+            return {"error": f"Translation processing error: {error_message}"} 
+            
     except Exception as e:
         logging.error(f"Exception during translation for text '{text}': {e}", exc_info=True)
-        return {"error": f"Translation failed: {str(e)}"}
+        # General fallback for other exceptions
+        return {"error": "An unexpected error occurred during translation. Please try again."}

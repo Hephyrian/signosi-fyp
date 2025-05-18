@@ -208,7 +208,19 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
     final Sign currentSign = _allSigns[_currentSignIndex];
     final String? signMediaType = currentSign.mediaType?.trim().toLowerCase();
 
-    print('Playing sign at index $index: Path: ${currentSign.mediaPath}, Type: $signMediaType');
+    print('Playing sign at index $index: Path/ID: ${currentSign.mediaPath}, Type: $signMediaType');
+
+    // New: Check for placeholder_missing from backend
+    if (signMediaType == "placeholder_missing") {
+      setState(() {
+        _isShowingVideoContent = false; // Not showing video or landmark animation
+        // currentSign.mediaPath will contain the label of the missing sign from the backend
+        _errorMessage = 'The sign for "${currentSign.mediaPath}" is not yet available in the dictionary.';
+        // _isLoading will be set to false by _handleUnplayableSign, which also advances
+      });
+      _handleUnplayableSign(); 
+      return;
+    }
 
     if (signMediaType == "video") {
       setState(() { _isShowingVideoContent = true; });
