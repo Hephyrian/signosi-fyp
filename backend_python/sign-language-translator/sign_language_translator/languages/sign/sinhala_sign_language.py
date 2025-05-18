@@ -130,40 +130,85 @@ class SinhalaSignLanguage(SignLanguage):
         tags: Optional[Iterable[Any]] = None,
         contexts: Optional[Iterable[Any]] = None,
     ) -> List[Dict[str, Union[List[List[str]], List[float]]]]:
-        if isinstance(tokens, str):
-            tokens = [tokens]
+        if isinstance(tokens, str): # Ensure tokens is a list
+            processed_tokens = [tokens]
+        else:
+            processed_tokens = list(tokens) # Convert iterable to list for indexed access
+
         if not tags:
-            tags = [Tags.DEFAULT for _ in tokens]
+            processed_tags = [Tags.DEFAULT for _ in processed_tokens]
+        else:
+            processed_tags = list(tags) # Convert iterable to list
+
         if not contexts:
-            contexts = [None for _ in tokens]
+            processed_contexts = [None for _ in processed_tokens]
+        else:
+            processed_contexts = list(contexts) # Convert iterable to list
 
         sign_dicts_list = []
-        logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Received tokens: {list(tokens)}, tags: {list(tags)}")
-        for token, tag, context in zip(tokens, tags, contexts):
-            logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Processing token='{token}', tag='{tag}'")
-            try:
-                # _apply_rules expects a single token and returns a list of sign_dicts for that token
-                # (often just one dict, but rules like number chunking can produce multiple)
-                token_sign_dicts = self._apply_rules(token, tag, context)
-                logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: For token='{token}', _apply_rules returned: {token_sign_dicts}")
-                sign_dicts_list.extend(token_sign_dicts)
-            except ValueError as e:
-                logging.warning(f"SinhalaSignLanguage.tokens_to_sign_dicts: ValueError for token='{token}': {e}")
-                # print(f"Warning: Could not map token '{token}' using defined rules: {e}")
-                # Fallback: attempt to spell if it's an unknown word and spelling rule exists
-                if self._sinhala_spelling_rule.is_applicable(token.lower(), Tags.DEFAULT, context):
-                    try:
-                        # print(f"Attempting to spell token: {token}")
-                        spelling_sign_dicts = self._sinhala_spelling_rule.apply(token.lower())
-                        sign_dicts_list.extend(spelling_sign_dicts)
-                        continue
-                    except Exception as spell_e:
-                        # print(f"Spelling also failed for '{token}': {spell_e}")
-                        pass # Fall through to raise original error or handle as truly unknown
-                
-                # If no rule (including spelling fallback) worked, raise or return placeholder
-                # For now, re-raising to make it explicit.
-                raise ValueError(f"No SLSL sign/rule could be inferred for token '{token}'. Original error: {e}")
+        logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Received tokens: {processed_tokens}, tags: {processed_tags}")
+
+        i = 0
+        num_tokens = len(processed_tokens)
+        while i < num_tokens:
+            token = processed_tokens[i]
+            tag = processed_tags[i]
+            context = processed_contexts[i] # Context for the first token of a potential bigram or unigram
+
+            processed_successfully = False
+
+            # Attempt to process as a two-word sequence (bigram)
+            if i + 1 < num_tokens:
+                next_token = processed_tokens[i+1]
+                # next_tag = processed_tags[i+1] # Tag for the second token, might be needed for more complex context
+                # next_context = processed_contexts[i+1] # Context for the second token
+
+                bigram_token_str = f"{token} {next_token}"
+                # For _apply_rules, the tag and context are primarily for the first token or the combined unit.
+                # Using the first token's tag and context for the bigram rule lookup.
+                # More sophisticated context/tag handling for bigrams could be added if rules require it.
+                logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Attempting bigram: '{bigram_token_str}', tag: '{tag}'")
+                try:
+                    bigram_sign_dicts = self._apply_rules(bigram_token_str, tag, context) # Pass bigram as a single string
+                    logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Bigram '{bigram_token_str}' successful: {bigram_sign_dicts}")
+                    sign_dicts_list.extend(bigram_sign_dicts)
+                    i += 2 # Advance by two tokens
+                    processed_successfully = True
+                except ValueError:
+                    logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Bigram '{bigram_token_str}' failed. Will try unigram '{token}'.")
+                    # ValueError means no rule for the bigram, fall through to unigram processing
+
+            # If bigram processing was not attempted or failed, process as a single token (unigram)
+            if not processed_successfully:
+                logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Processing unigram: '{token}', tag: '{tag}'")
+                try:
+                    token_sign_dicts = self._apply_rules(token, tag, context)
+                    logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Unigram '{token}' successful: {token_sign_dicts}")
+                    sign_dicts_list.extend(token_sign_dicts)
+                    i += 1 # Advance by one token
+                    processed_successfully = True
+                except ValueError as e:
+                    logging.warning(f"SinhalaSignLanguage.tokens_to_sign_dicts: Unigram ValueError for token='{token}': {e}")
+                    # Fallback: attempt to spell if it's an unknown word and spelling rule exists
+                    # This fallback should apply only if the unigram itself fails, not if a bigram fails and unigram is next.
+                    if self._sinhala_spelling_rule.is_applicable(token.lower(), Tags.DEFAULT, context): # Use token.lower() for spelling
+                        try:
+                            logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Attempting spelling fallback for unigram: '{token}'")
+                            spelling_sign_dicts = self._sinhala_spelling_rule.apply(token.lower())
+                            sign_dicts_list.extend(spelling_sign_dicts)
+                            i += 1 # Advance by one token
+                            processed_successfully = True
+                            logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Spelling fallback for '{token}' successful.")
+                            # continue # To next token in while loop
+                        except Exception as spell_e:
+                            logging.warning(f"SinhalaSignLanguage.tokens_to_sign_dicts: Spelling fallback for '{token}' also failed: {spell_e}")
+                            # Fall through to raise original error for the unigram
+                    
+                    if not processed_successfully:
+                        # If no rule (including spelling fallback for unigram) worked, raise error for the unigram.
+                        # This error reflects that the specific single token couldn't be translated.
+                        # If bigram was tried and failed, this error is for the first token of that bigram.
+                        raise ValueError(f"No SLSL sign/rule could be inferred for token '{token}' (tried as unigram, and potentially as part of bigram). Original error: {e}")
 
         return sign_dicts_list
 
@@ -195,59 +240,6 @@ class SinhalaSignLanguage(SignLanguage):
         print(f"[DEBUG] SinhalaSignLanguage._apply_rules: No applicable rule found for token_lower='{token_lower}'. Raising ValueError.")
         logging.warning(f"SinhalaSignLanguage: No applicable rule found for token '{token}' (lowercase: '{token_lower}').")
         raise ValueError(f"No applicable rule found for token '{token}'.")
-
-    # <<< REMOVE THIS DUPLICATE METHOD DEFINITION >>>
-    # def tokens_to_sign_dicts(
-    #     self,
-    #     tokens: Iterable[str],
-    #     tags: Optional[Iterable[Any]] = None,
-    #     contexts: Optional[Iterable[Any]] = None,
-    # ) -> List[Dict[str, Union[List[List[str]], List[float]]]]:
-    #     if isinstance(tokens, str):
-    #         tokens = [tokens]
-    #     if not tags:
-    #         tags = [Tags.DEFAULT for _ in tokens]
-    #     if not contexts:
-    #         contexts = [None for _ in tokens]
-
-    #     sign_dicts_list = []
-    #     print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: START. Received tokens: {list(tokens)}, tags: {list(tags)}")
-    #     logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Received tokens: {list(tokens)}, tags: {list(tags)}")
-    #     for token, tag, context in zip(tokens, tags, contexts):
-    #         print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: Processing token='{token}', tag='{tag}'")
-    #         logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: Processing token='{token}', tag='{tag}'")
-    #         try:
-    #             # _apply_rules expects a single token and returns a list of sign_dicts for that token
-    #             # (often just one dict, but rules like number chunking can produce multiple)
-    #             token_sign_dicts = self._apply_rules(token, tag, context)
-    #             print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: For token='{token}', _apply_rules returned: {token_sign_dicts}")
-    #             logging.debug(f"SinhalaSignLanguage.tokens_to_sign_dicts: For token='{token}', _apply_rules returned: {token_sign_dicts}")
-    #             sign_dicts_list.extend(token_sign_dicts)
-    #         except ValueError as e:
-    #             print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: ValueError for token='{token}': {e}")
-    #             logging.warning(f"SinhalaSignLanguage.tokens_to_sign_dicts: ValueError for token='{token}': {e}")
-    #             # print(f"Warning: Could not map token '{token}' using defined rules: {e}")
-    #             # Fallback: attempt to spell if it's an unknown word and spelling rule exists
-    #             if self._sinhala_spelling_rule.is_applicable(token.lower(), Tags.DEFAULT, context):
-    #                 try:
-    #                     # print(f"Attempting to spell token: {token}")
-    #                     print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: Attempting fallback spelling for token='{token}'")
-    #                     spelling_sign_dicts = self._sinhala_spelling_rule.apply(token.lower())
-    #                     print(f"[DEBUG] SinhalaSignLanguage.tokens_to__sign_dicts: Fallback spelling returned: {spelling_sign_dicts}")
-    #                     sign_dicts_list.extend(spelling_sign_dicts)
-    #                     continue
-    #                 except Exception as spell_e:
-    #                     print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: Fallback spelling EXCEPTION for '{token}': {spell_e}")
-    #                     # print(f"Spelling also failed for '{token}': {spell_e}")
-    #                     pass # Fall through to raise original error or handle as truly unknown
-                
-    #             # If no rule (including spelling fallback) worked, raise or return placeholder
-    #             # For now, re-raising to make it explicit.
-    #             print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: No rule or fallback worked for token='{token}'. Raising ValueError.")
-    #             raise ValueError(f"No SLSL sign/rule could be inferred for token '{token}'. Original error: {e}")
-    #     print(f"[DEBUG] SinhalaSignLanguage.tokens_to_sign_dicts: END. Returning sign_dicts_list: {sign_dicts_list}")
-    #     return sign_dicts_list
-    # <<< END OF REMOVAL >>>
 
     def restructure_sentence(
         self,

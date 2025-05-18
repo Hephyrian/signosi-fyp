@@ -147,10 +147,12 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
             _videoPlayerController!.play();
             _videoPlayerController!.setLooping(true);
           }).catchError((error) {
-            print('Error initializing video player: $error');
+            print('Error initializing video player: $error. Attempted URL: ${firstSign.mediaPath}');
             setState(() {
-              _errorMessage = 'Could not load video: $error';
-              _isShowingVideo = false;
+              if (mounted) {
+                _errorMessage = 'Failed to load video: The content was not found on the server (Error 404).\nAttempted URL: ${firstSign.mediaPath}';
+                _isShowingVideo = false;
+              }
             });
           });
           setState(() {
