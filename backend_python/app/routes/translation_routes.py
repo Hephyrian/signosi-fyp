@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+import logging # Added for debugging
 # Assuming translation_service.py is in backend_python/app/services/
 from ..services.translation_service import translate_text_to_slsl
 
@@ -11,6 +12,7 @@ def handle_text_to_slsl():
         return jsonify({"error": "Missing 'text' in request body"}), 400
     
     text_to_translate = data['text']
+    logging.info(f"[ROUTE] Received text for translation: '{text_to_translate}', type: {type(text_to_translate)}") # Added for debugging
     source_language = data.get('source_language', 'si') # Default to Sinhala
 
     if source_language not in ['si', 'en', 'ta']: # Add 'ta' if you add support in service

@@ -3,6 +3,8 @@ import sys
 import logging
 import json # For loading custom mapping
 import traceback # For detailed error logging
+import boto3 # Added for S3 integration
+from botocore.exceptions import NoCredentialsError, ClientError # Added for S3 error handling
 
 # Define paths first
 PACKAGE_PARENT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')) # .../signosi-fyp/backend_python
@@ -46,6 +48,28 @@ except ImportError as e:
     logging.error(f"Ensure sign-language-translator is in PYTHONPATH or installed. Current sys.path: {sys.path}")
     slt_models = None # So app can check and fail gracefully
 
+# === S3 Configuration ===
+AWS_S3_BUCKET_NAME = os.environ.get('AWS_S3_BUCKET_NAME')
+AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
+AWS_S3_REGION = os.environ.get('AWS_S3_REGION')
+
+s3_client = None
+if AWS_S3_BUCKET_NAME and AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY and AWS_S3_REGION:
+    try:
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            region_name=AWS_S3_REGION
+        )
+        logging.info(f"S3 client initialized for bucket '{AWS_S3_BUCKET_NAME}' in region '{AWS_S3_REGION}'.")
+    except Exception as e:
+        logging.error(f"Failed to initialize S3 client: {e}", exc_info=True)
+        s3_client = None
+else:
+    logging.warning("S3 credentials/bucket name/region not fully configured in environment variables. S3 features will be disabled.")
+
 # === Custom video path logic for lk-custom dataset ===
 _custom_lk_mapping_data = None # Store the loaded JSON data
 
@@ -80,58 +104,71 @@ except (NameError, AttributeError):
 class CustomSinhalaConcatenativeSynthesis(slt_models.ConcatenativeSynthesis if slt_models else object):
     def _prepare_resource_name(self, label: str, person=None, camera=None, sep="_") -> str:
         logging.debug(f"CustomSinhalaConcatenativeSynthesis._prepare_resource_name called with label: '{label}'")
-        # 'label' is the sign_id from SinhalaSignLanguage, e.g., "lk-custom-S0001_Potha"
         
+        if not s3_client:
+            logging.error("CustomSinhalaConcatenativeSynthesis: S3 client not initialized. Cannot fetch from S3. Falling back to superclass.")
+            return super()._prepare_resource_name(label, person, camera, sep)
+
         if not isinstance(_custom_lk_mapping_data, dict) or not _custom_lk_mapping_data:
             logging.error("CustomSinhalaConcatenativeSynthesis: Custom mapping data not loaded or empty. Falling back to superclass.")
             return super()._prepare_resource_name(label, person, camera, sep)
 
         if label in _custom_lk_mapping_data:
             entry = _custom_lk_mapping_data[label]
-            
-            # Directly use "media_path" from the custom mapping
-            relative_media_path = entry.get("media_path")
+            s3_object_key = entry.get("media_path") # Assuming media_path is now the S3 object key
 
-            if relative_media_path:
-                # Ensure the path uses forward slashes, as expected by the Assets system
-                # (though it should already be in this format if populate_lk_custom_mapping.py is correct)
-                relative_media_path = relative_media_path.replace("\\", "/")
-                # Handle folder names with dots by extracting the correct folder from the sign ID if needed
-                if label.startswith("lk-custom-") and "_" in label:
-                    sign_part = label.split("_")[-1] if "_" in label else label
-                    if "." in sign_part:
-                        # Extract the intended folder name from the sign ID or mapping
-                        folder_name = sign_part.replace(".", ". ")
-                        # Adjust the path to include the dot in the folder name
-                        path_parts = relative_media_path.split("/")
-                        if path_parts[-1].startswith(folder_name.split(".")[0]):
-                            path_parts[-2] = folder_name
-                            relative_media_path = "/".join(path_parts[:-1]) + "/" + path_parts[-1].replace(folder_name.split(".")[0], folder_name)
-                # Convert to absolute path relative to the project root (PACKAGE_PARENT_DIR)
-                # Assuming relative_media_path starts like 'backend_python/...'
-                # We need the path relative to the script's execution context (likely backend_python/)
-                # Let's construct the absolute path carefully.
-                # Assuming relative_media_path is like 'backend_python/sign-language-translator/...'
-                # And PACKAGE_PARENT_DIR is 'c:/.../signosi-fyp'
-                # We need 'c:/.../signosi-fyp/backend_python/sign-language-translator/...'
-                # os.path.abspath() might resolve relative to the CWD (backend_python), so joining with PACKAGE_PARENT_DIR is safer.
-                # However, the relative path already includes 'backend_python', so joining might duplicate it.
-                # Construct the absolute path by joining the project root (PACKAGE_PARENT_DIR)
-                # with the relative path from the mapping file. Use PROJECT_ROOT_DIR as the base.
-                logging.debug(f"CustomSinhalaConcatenativeSynthesis: Preparing to join: PROJECT_ROOT_DIR='{PROJECT_ROOT_DIR}', relative_media_path='{relative_media_path}'") # Changed log variable name
-                absolute_media_path = os.path.join(PROJECT_ROOT_DIR, relative_media_path) # Use PROJECT_ROOT_DIR
-                # Normalize the path (e.g., handle mixed slashes if any, resolve '..')
-                absolute_media_path = os.path.normpath(absolute_media_path)
-                logging.debug(f"CustomSinhalaConcatenativeSynthesis: Result of join and normpath: '{absolute_media_path}'") # Added log
-
-                logging.info(f"CustomSinhalaConcatenativeSynthesis: Using absolute media_path for sign_id '{label}': '{absolute_media_path}'")
-                return absolute_media_path
+            if s3_object_key:
+                # Ensure the key uses forward slashes, common for S3
+                s3_object_key = s3_object_key.replace("\\\\", "/")
+                
+                try:
+                    presigned_url = s3_client.generate_presigned_url(
+                        'get_object',
+                        Params={'Bucket': AWS_S3_BUCKET_NAME, 'Key': s3_object_key},
+                        ExpiresIn=30  # URL expires in 30 seconds
+                    )
+                    logging.info(f"CustomSinhalaConcatenativeSynthesis: Generated pre-signed URL for S3 object key '{s3_object_key}': '{presigned_url}'")
+                    return presigned_url
+                except NoCredentialsError:
+                    logging.error("CustomSinhalaConcatenativeSynthesis: AWS credentials not found. Cannot generate pre-signed URL.")
+                except ClientError as e:
+                    logging.error(f"CustomSinhalaConcatenativeSynthesis: Error generating pre-signed URL for S3 object key '{s3_object_key}': {e}", exc_info=True)
+                except Exception as e:
+                    logging.error(f"CustomSinhalaConcatenativeSynthesis: Unexpected error generating pre-signed URL for S3 object key '{s3_object_key}': {e}", exc_info=True)
+                
+                # Fallback if URL generation fails
+                logging.warning(f"CustomSinhalaConcatenativeSynthesis: Failed to generate pre-signed URL for S3 object key '{s3_object_key}'. Falling back.")
             else:
-                logging.warning(f"CustomSinhalaConcatenativeSynthesis: 'media_path' not found for sign_id '{label}' in custom mapping. Falling back.")
+                logging.warning(f"CustomSinhalaConcatenativeSynthesis: 'media_path' (S3 object key) not found for sign_id '{label}' in custom mapping. Falling back.")
         else:
             logging.warning(f"CustomSinhalaConcatenativeSynthesis: Sign_id '{label}' not found in custom mapping. Falling back.")
 
         return super()._prepare_resource_name(label, person, camera, sep)
+
+    def _map_labels_to_sign(self, video_labels: list[str], person=None, camera=None, sep="_") -> list[str]:
+        """
+        Overrides the parent method to prevent local file validation on S3 URLs.
+        It calls our custom _prepare_resource_name for each label (which generates S3 URLs)
+        and returns the list of these URLs (or fallback paths).
+        """
+        logging.debug(f"CustomSinhalaConcatenativeSynthesis._map_labels_to_sign called with labels: {video_labels}")
+        resource_paths_or_urls = []
+        if not video_labels:
+            logging.debug("CustomSinhalaConcatenativeSynthesis._map_labels_to_sign: Received empty video_labels list.")
+            return []
+
+        for label_to_map in video_labels:
+            # Our _prepare_resource_name method already handles S3 URL generation or fallback.
+            path_or_url = self._prepare_resource_name(label_to_map, person, camera, sep)
+            if path_or_url:
+                resource_paths_or_urls.append(path_or_url)
+                logging.debug(f"CustomSinhalaConcatenativeSynthesis._map_labels_to_sign: Added '{path_or_url}' for label '{label_to_map}'")
+            else:
+                # This case should ideally be handled within _prepare_resource_name's fallback or logging.
+                logging.warning(f"CustomSinhalaConcatenativeSynthesis._map_labels_to_sign: _prepare_resource_name returned None for label '{label_to_map}'. Skipping.")
+        
+        logging.debug(f"CustomSinhalaConcatenativeSynthesis._map_labels_to_sign: Returning resource_paths_or_urls: {resource_paths_or_urls}")
+        return resource_paths_or_urls
 
 # Initialize models for different input languages
 # We create them once to be reused across requests.
@@ -196,7 +233,7 @@ def translate_text_to_slsl(text, source_language_code="si"):
     try:
         logging.info(f"Attempting translation for text: '{text}' using model: {model_key}")
         logging.debug(f"Model instance: {model}")
-        logging.debug(f"Input text type: {type(text)}, value: {text}")
+        logging.debug(f"Input text type: {type(text)}, value (service level): '{text}'")
 
         # === Call the core translation method ===
         # This returns either a Landmarks object or a list of video paths
