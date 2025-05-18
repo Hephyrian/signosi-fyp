@@ -102,33 +102,49 @@ except (NameError, AttributeError):
 
 # Custom ConcatenativeSynthesis model for Sinhala SLSL
 class CustomSinhalaConcatenativeSynthesis(slt_models.ConcatenativeSynthesis if slt_models else object):
-    def _prepare_resource_name(self, label: str, person=None, camera=None, sep="_") -> str:
+    def _prepare_resource_name(self, label: str, person=None, camera=None, sep="_") -> dict:
         logging.debug(f"CustomSinhalaConcatenativeSynthesis._prepare_resource_name called with label: '{label}'")
         
+        # Default media_type, can be overridden if found in entry
+        # Fallback path if S3 fails or not configured
+        fallback_media_path = super()._prepare_resource_name(label, person, camera, sep)
+        # Default to "video" if not specified, or handle as unknown based on your logic
+        # However, our populate_lk_custom_mapping.py ensures 'media_type' is present.
+        resource_info = {"media_path": fallback_media_path, "media_type": "video", "label": label}
+
         if not s3_client:
-            logging.error("CustomSinhalaConcatenativeSynthesis: S3 client not initialized. Cannot fetch from S3. Falling back to superclass.")
-            return super()._prepare_resource_name(label, person, camera, sep)
+            logging.error("CustomSinhalaConcatenativeSynthesis: S3 client not initialized. Cannot fetch from S3. Returning fallback resource info.")
+            # Use super class to get a local path if possible, or a placeholder
+            resource_info["media_path"] = super()._prepare_resource_name(label, person, camera, sep)
+            # Attempt to get media_type even for fallback from mapping data if label exists
+            if isinstance(_custom_lk_mapping_data, dict) and label in _custom_lk_mapping_data:
+                entry_fallback = _custom_lk_mapping_data[label]
+                resource_info["media_type"] = entry_fallback.get("media_type", "video") # Default if somehow missing
+            return resource_info
 
         if not isinstance(_custom_lk_mapping_data, dict) or not _custom_lk_mapping_data:
-            logging.error("CustomSinhalaConcatenativeSynthesis: Custom mapping data not loaded or empty. Falling back to superclass.")
-            return super()._prepare_resource_name(label, person, camera, sep)
+            logging.error("CustomSinhalaConcatenativeSynthesis: Custom mapping data not loaded or empty. Returning fallback resource info.")
+            resource_info["media_path"] = super()._prepare_resource_name(label, person, camera, sep)
+            return resource_info
 
         if label in _custom_lk_mapping_data:
             entry = _custom_lk_mapping_data[label]
-            s3_object_key = entry.get("media_path") # Assuming media_path is now the S3 object key
+            s3_object_key = entry.get("media_path")
+            # Ensure media_type is fetched from the entry
+            media_type_from_entry = entry.get("media_type", "video") # Default to "video" if not present
+            resource_info["media_type"] = media_type_from_entry
 
             if s3_object_key:
-                # Ensure the key uses forward slashes, common for S3
                 s3_object_key = s3_object_key.replace("\\\\", "/")
-                
                 try:
                     presigned_url = s3_client.generate_presigned_url(
                         'get_object',
                         Params={'Bucket': AWS_S3_BUCKET_NAME, 'Key': s3_object_key},
-                        ExpiresIn=30  # URL expires in 30 seconds
+                        ExpiresIn=30
                     )
                     logging.info(f"CustomSinhalaConcatenativeSynthesis: Generated pre-signed URL for S3 object key '{s3_object_key}': '{presigned_url}'")
-                    return presigned_url
+                    resource_info["media_path"] = presigned_url # Update media_path with S3 URL
+                    return resource_info # Return the full dict
                 except NoCredentialsError:
                     logging.error("CustomSinhalaConcatenativeSynthesis: AWS credentials not found. Cannot generate pre-signed URL.")
                 except ClientError as e:
@@ -136,39 +152,43 @@ class CustomSinhalaConcatenativeSynthesis(slt_models.ConcatenativeSynthesis if s
                 except Exception as e:
                     logging.error(f"CustomSinhalaConcatenativeSynthesis: Unexpected error generating pre-signed URL for S3 object key '{s3_object_key}': {e}", exc_info=True)
                 
-                # Fallback if URL generation fails
-                logging.warning(f"CustomSinhalaConcatenativeSynthesis: Failed to generate pre-signed URL for S3 object key '{s3_object_key}'. Falling back.")
+                logging.warning(f"CustomSinhalaConcatenativeSynthesis: Failed to generate pre-signed URL for S3 object key '{s3_object_key}'. Using fallback path for this entry.")
+                # Fallback to local path if S3 URL fails, but media_type is still from entry
+                resource_info["media_path"] = super()._prepare_resource_name(label, person, camera, sep) # Get local/placeholder path
+                return resource_info
             else:
-                logging.warning(f"CustomSinhalaConcatenativeSynthesis: 'media_path' (S3 object key) not found for sign_id '{label}' in custom mapping. Falling back.")
+                logging.warning(f"CustomSinhalaConcatenativeSynthesis: 'media_path' (S3 object key) not found for sign_id '{label}' in custom mapping. Using fallback path.")
+                resource_info["media_path"] = super()._prepare_resource_name(label, person, camera, sep) # Get local/placeholder path
+                return resource_info
         else:
-            logging.warning(f"CustomSinhalaConcatenativeSynthesis: Sign_id '{label}' not found in custom mapping. Falling back.")
+            logging.warning(f"CustomSinhalaConcatenativeSynthesis: Sign_id '{label}' not found in custom mapping. Using fallback path and default media_type.")
+            # Fallback to local path and default "video" media_type
+            resource_info["media_path"] = super()._prepare_resource_name(label, person, camera, sep)
+            resource_info["media_type"] = "video" # Or some other default if appropriate
+            return resource_info
 
-        return super()._prepare_resource_name(label, person, camera, sep)
-
-    def _map_labels_to_sign(self, video_labels: list[str], person=None, camera=None, sep="_") -> list[str]:
+    def _map_labels_to_sign(self, video_labels: list[str], person=None, camera=None, sep="_") -> list[dict]:
         """
-        Overrides the parent method to prevent local file validation on S3 URLs.
-        It calls our custom _prepare_resource_name for each label (which generates S3 URLs)
-        and returns the list of these URLs (or fallback paths).
+        Overrides the parent method.
+        Calls _prepare_resource_name for each label and returns a list of dictionaries
+        each containing media_path, media_type, and label.
         """
         logging.debug(f"CustomSinhalaConcatenativeSynthesis._map_labels_to_sign called with labels: {video_labels}")
-        resource_paths_or_urls = []
+        sign_resources_info = []
         if not video_labels:
             logging.debug("CustomSinhalaConcatenativeSynthesis._map_labels_to_sign: Received empty video_labels list.")
             return []
 
         for label_to_map in video_labels:
-            # Our _prepare_resource_name method already handles S3 URL generation or fallback.
-            path_or_url = self._prepare_resource_name(label_to_map, person, camera, sep)
-            if path_or_url:
-                resource_paths_or_urls.append(path_or_url)
-                logging.debug(f"CustomSinhalaConcatenativeSynthesis._map_labels_to_sign: Added '{path_or_url}' for label '{label_to_map}'")
+            resource_dict = self._prepare_resource_name(label_to_map, person, camera, sep)
+            if resource_dict and resource_dict.get("media_path"):
+                sign_resources_info.append(resource_dict)
+                logging.debug(f"CustomSinhalaConcatenativeSynthesis._map_labels_to_sign: Added resource info: {resource_dict} for label '{label_to_map}'")
             else:
-                # This case should ideally be handled within _prepare_resource_name's fallback or logging.
-                logging.warning(f"CustomSinhalaConcatenativeSynthesis._map_labels_to_sign: _prepare_resource_name returned None for label '{label_to_map}'. Skipping.")
+                logging.warning(f"CustomSinhalaConcatenativeSynthesis._map_labels_to_sign: _prepare_resource_name returned invalid data for label '{label_to_map}'. Skipping. Data: {resource_dict}")
         
-        logging.debug(f"CustomSinhalaConcatenativeSynthesis._map_labels_to_sign: Returning resource_paths_or_urls: {resource_paths_or_urls}")
-        return resource_paths_or_urls
+        logging.debug(f"CustomSinhalaConcatenativeSynthesis._map_labels_to_sign: Returning sign_resources_info: {sign_resources_info}")
+        return sign_resources_info
 
 # Initialize models for different input languages
 # We create them once to be reused across requests.
@@ -236,27 +256,38 @@ def translate_text_to_slsl(text, source_language_code="si"):
         logging.debug(f"Input text type: {type(text)}, value (service level): '{text}'")
 
         # === Call the core translation method ===
-        # This returns either a Landmarks object or a list of video paths
+        # This returns either a Landmarks object or a list of video paths (now list of dicts)
         result = model.translate(text)
         # =======================================
 
         logging.info(f"Translation call completed. Output type: {type(result)}")
-        logging.debug(f"Raw result object: {result}")
+        logging.debug(f"Raw result object from model.translate: {result}")
 
-        # Check if the result is a Landmarks object or a list of video paths
-        if isinstance(result, Landmarks):  # Use the imported Landmarks class
+        # Check if the result is a Landmarks object or a list of video resource dictionaries
+        if isinstance(result, Landmarks):
             logging.info(f"Translation successful. Received Landmarks object with shape: {result.tensor.shape}")
-            # Convert tensor to a list of lists for JSON serialization
             landmark_data = result.tensor.numpy().tolist()
             logging.debug(f"Landmark data list (first frame): {landmark_data[0] if landmark_data else 'No frames'}")
-            return {"landmark_data": landmark_data}
-        elif isinstance(result, list) and all(isinstance(item, str) for item in result):
-            # Handle the case where we get a list of video file paths
-            logging.info(f"Translation successful. Received list of {len(result)} video paths.")
-            # Return the video paths
-            return {"signs": [{"media_path": path} for path in result]}
+            # For landmarks, media_type would be different, e.g., "landmarks_json"
+            # This response structure needs to be agreed upon with the frontend
+            return {"signs": [{"landmark_data": landmark_data, "media_type": "landmarks_json"}]} # Example structure
+        # MODIFIED: Check for list of dictionaries
+        elif isinstance(result, list) and all(isinstance(item, dict) for item in result):
+            logging.info(f"Translation successful. Received list of {len(result)} sign resource dictionaries.")
+            # The result is now already a list of dictionaries like:
+            # [{"media_path": "s3_url_or_path", "media_type": "video", "label": "original_label"}, ...]
+            # We can directly use this for the "signs" part of the response.
+            # We might want to remove the "label" field if it's only for debugging.
+            final_signs_for_response = []
+            for sign_info_dict in result:
+                final_signs_for_response.append({
+                    "media_path": sign_info_dict.get("media_path"),
+                    "media_type": sign_info_dict.get("media_type")
+                    # Add other fields if necessary, remove "label" if not needed by frontend
+                })
+            return {"signs": final_signs_for_response}
         else:
-            logging.error(f"Translation returned unexpected result type: {type(result)}")
+            logging.error(f"Translation returned unexpected result type: {type(result)}. Content: {result}")
             return {"error": "Translation failed to produce expected output format."}
 
     except Exception as e:

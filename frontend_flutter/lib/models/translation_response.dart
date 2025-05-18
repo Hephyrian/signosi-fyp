@@ -1,9 +1,11 @@
 class Sign {
   final String mediaPath;
+  final String? mediaType;
   final List<List<double>>? landmarkData; // Optional landmark data for animation
 
   Sign({
     required this.mediaPath,
+    this.mediaType,
     this.landmarkData,
   });
 
@@ -19,6 +21,7 @@ class Sign {
 
     return Sign(
       mediaPath: json['media_path'] as String,
+      mediaType: json['media_type'] as String?,
       landmarkData: landmarks,
     );
   }

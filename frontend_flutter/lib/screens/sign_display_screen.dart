@@ -6,11 +6,9 @@ import 'package:http/http.dart' as http; // Import http package
 import 'dart:convert'; // Import for JSON decoding
 import 'dart:async'; // Import for Timer
 import 'dart:io'; // Needed for Platform
-
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
-
-// import '../widgets/sign_video_player.dart'; // No longer using video player directly
+import 'package:video_player/video_player.dart'; // Added for video playback
 import '../models/translation_response.dart';
 import '../services/translation_service.dart';
 import '../controllers/sign_animation_controller.dart';
@@ -33,7 +31,18 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
   bool _isLoading = true;
   String _errorMessage = '';
   SignAnimationController _controller = SignAnimationController();
-  bool _useTestData = true; // Added for testing
+  bool _useTestData = false; // Default to false to allow video playback path
+
+  // Video Player State
+  VideoPlayerController? _videoPlayerController;
+  Future<void>? _initializeVideoPlayerFuture;
+  bool _isShowingVideo = false;
+
+  // Test data from Bad_001_hand_landmarks.csv (Right hand, 21 landmarks per frame)
+  // Frame 0
+  static const String csvBadFrame1 = """"[0.7548737525939941,0.5932378768920898,-3.635961434156343e-07,0.0]","[0.728845477104187,0.5761290788650513,0.0032729096710681915,0.0]","[0.715084433555603,0.558305025100708,0.0030686177778989077,0.0]","[0.7072984576225281,0.5422724485397339,-0.0013074843445792794,0.0]","[0.7062391638755798,0.5268468856811523,-0.005446325056254864,0.0]","[0.7329219579696655,0.5339693427085876,0.01573677361011505,0.0]","[0.7192139625549316,0.523029088973999,0.007404610048979521,0.0]","[0.7122801542282104,0.5353289842605591,0.00014754783478565514,0.0]","[0.7106570601463318,0.5500458478927612,-0.0020610035862773657,0.0]","[0.7386649250984192,0.5318588018417358,0.009044624865055084,0.0]","[0.720899760723114,0.5235512852668762,-0.0023777929600328207,0.0]","[0.715600848197937,0.5403869152069092,-0.01119239255785942,0.0]","[0.7151370048522949,0.5556443929672241,-0.013652714900672436,0.0]","[0.745735764503479,0.5294637084007263,0.001012205146253109,0.0]","[0.7271649837493896,0.5202445983886719,-0.010941635817289352,0.0]","[0.7217717170715332,0.5371203422546387,-0.015221502631902695,0.0]","[0.7225801944732666,0.5522609949111938,-0.013288394547998905,0.0]","[0.7524570226669312,0.5272709727287292,-0.006695352029055357,0.0]","[0.7432875633239746,0.5045188069343567,-0.010270248167216778,0.0]","[0.7355450391769409,0.4918433725833893,-0.008838123641908169,0.0]","[0.7293587327003479,0.4813601076602936,-0.00581545103341341,0.0]""";
+  // Frame 1
+  static const String csvBadFrame2 = """"[0.7510221600532532,0.5882725715637207,-2.48390222168382e-07,0.0]","[0.7264186143875122,0.5732042789459229,0.003378016874194145,0.0]","[0.7134166359901428,0.5555407404899597,0.00458280136808753,0.0]","[0.7065786123275757,0.5396603345870972,0.001744197797961533,0.0]","[0.7064195275306702,0.5245199203491211,-0.0005724576767534018,0.0]","[0.7256267666816711,0.5332132577896118,0.017957182601094246,0.0]","[0.7161718606948853,0.5201088190078735,0.00948240701109171,0.0]","[0.7105217576026917,0.5323400497436523,0.0029568730387836695,0.0]","[0.7098551988601685,0.5464351177215576,0.0016644778661429882,0.0]","[0.7322190403938293,0.5307217836380005,0.012136191129684448,0.0]","[0.7193277478218079,0.5188592076301575,0.0006168438121676445,0.0]","[0.7146736979484558,0.5352380871772766,-0.007454841397702694,0.0]","[0.7149906158447266,0.5502008199691772,-0.008520454168319702,0.0]","[0.7413644194602966,0.5282655954360962,0.004761312156915665,0.0]","[0.7264914512634277,0.5187584161758423,-0.0066305468790233135,0.0]","[0.7216036319732666,0.5355955958366394,-0.009918500669300556,0.0]","[0.7230018377304077,0.5496034622192383,-0.006651936564594507,0.0]","[0.7509673833847046,0.52628493309021,-0.0024045195896178484,0.0]","[0.7444785833358765,0.5032973289489746,-0.006168593652546406,0.0]","[0.7381910085678101,0.4901561737060547,-0.005302421748638153,0.0]","[0.7331218719482422,0.4791611433029175,-0.002117812866345048,0.0]""";
 
   @override
   void initState() {
@@ -60,41 +69,42 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
     setState(() {
       _isLoading = true;
       _errorMessage = '';
+      _isShowingVideo = false; // Reset video state
     });
+    // Dispose previous video controller if any
+    await _videoPlayerController?.dispose();
+    _videoPlayerController = null;
+    _initializeVideoPlayerFuture = null;
 
     if (_useTestData) {
-      print('Using test landmark data from April_001.csv');
-
-      // Raw CSV data for the first two frames
-      const String csvFrame1 = """"[0.3719269931316376, 0.4031713306903839, -0.5908280611038208, 0.9998818635940552]","[0.3896176815032959, 0.38208091259002686, -0.5638502836227417, 0.9998152852058411]","[0.39731135964393616, 0.38296976685523987, -0.5638006329536438, 0.999832272529602]","[0.40733739733695984, 0.3846631944179535, -0.5637032389640808, 0.9998132586479187]","[0.35938969254493713, 0.3815893828868866, -0.5601824522018433, 0.9998539686203003]","[0.3485001027584076, 0.38251930475234985, -0.5601455569267273, 0.9998506307601929]","[0.3394871950149536, 0.3841092586517334, -0.5603248476982117, 0.9998290538787842]","[0.4226909875869751, 0.39998435974121094, -0.3606184124946594, 0.9998621940612793]","[0.325337678194046, 0.39873406291007996, -0.33377805352211, 0.9998039603233337]","[0.3887314796447754, 0.43392863869667053, -0.51450115442276, 0.9999582767486572]","[0.3524875044822693, 0.43407633900642395, -0.5072373151779175, 0.9999469518661499]","[0.49294668436050415, 0.545862078666687, -0.2524036467075348, 0.9999659061431885]","[0.2443741112947464, 0.5384296178817749, -0.1646309643983841, 0.999947190284729]","[0.5498917698860168, 0.7352914214134216, -0.37451353669166565, 0.9939180612564087]","[0.16002751886844635, 0.7537338733673096, -0.3655508756637573, 0.9944643378257751]","[0.4364374577999115, 0.6767564415931702, -0.7040620446205139, 0.9913852214813232]","[0.2360420823097229, 0.6580294370651245, -0.875379204750061, 0.9946960210800171]","[0.39671769738197327, 0.6778639554977417, -0.7753905653953552, 0.9572309255599976]","[0.2601676881313324, 0.6356126070022583, -0.9613609313964844, 0.9759569764137268]","[0.389016717672348, 0.6517277956008911, -0.7475535869598389, 0.9564473032951355]","[0.2599497437477112, 0.6063519716262817, -0.9468079209327698, 0.9727716445922852]","[0.3956421911716461, 0.6506086587905884, -0.6948451399803162, 0.9573090076446533]","[0.2612255811691284, 0.6111517548561096, -0.8783161640167236, 0.9727998971939087]","[0.4344797730445862, 0.8344051241874695, -0.02142213098704815, 0.793832540512085]","[0.2656612992286682, 0.8371866941452026, 0.023558832705020905, 0.8300541043281555]","[0.4275031089782715, 1.0698153972625732, 0.0697617307305336, 0.003622946795076132]","[0.2514631450176239, 1.0712993144989014, 0.24166043102741241, 0.002160710282623768]","[0.39997807145118713, 1.2802903652191162, 0.43927690386772156, 0.0002180249139200896]","[0.24404728412628174, 1.2903709411621094, 0.5913673043251038, 0.00015706305566709489]","[0.3986496925354004, 1.3114383220672607, 0.4634665846824646, 0.0008348491392098367]","[0.24144327640533447, 1.3266106843948364, 0.615894079208374, 0.0003225167456548661]","[0.38323792815208435, 1.3598363399505615, 0.19609718024730682, 0.00019037030870094895]","[0.2464931756258011, 1.36416494846344, 0.32593101263046265, 0.0004652292700484395]""";
-      const String csvFrame2 = """"[0.37064114212989807, 0.40311992168426514, -0.6227223873138428, 0.9998902678489685]","[0.38886213302612305, 0.38190725445747375, -0.588924765586853, 0.9998291730880737]","[0.3972688913345337, 0.3828850984573364, -0.5888422131538391, 0.999844491481781]","[0.4064840078353882, 0.38460099697113037, -0.5886795520782471, 0.9998267292976379]","[0.3582955598831177, 0.38133203983306885, -0.5827250480651855, 0.9998639225959778]","[0.34758955240249634, 0.3823230564594269, -0.5826057195663452, 0.9998601078987122]","[0.3384356200695038, 0.383775532245636, -0.5826959013938904, 0.9998393654823303]","[0.4223119914531708, 0.40029194951057434, -0.3587500751018524, 0.9998728632926941]","[0.32511767745018005, 0.39857611060142517, -0.3241611123085022, 0.9998170137405396]","[0.38842999935150146, 0.43380215764045715, -0.533801257610321, 0.9999614357948303]","[0.3505769670009613, 0.4329037070274353, -0.5238711833953857, 0.999950647354126]","[0.49284645915031433, 0.5458669066429138, -0.2488323599100113, 0.9999672174453735]","[0.24352391064167023, 0.5399615168571472, -0.1446349173784256, 0.9999465346336365]","[0.5511842370033264, 0.7366482019424438, -0.46656614542007446, 0.9942821860313416]","[0.15920226275920868, 0.753070592880249, -0.42614108324050903, 0.9944739937782288]","[0.4381239116191864, 0.6615561246871948, -0.8738317489624023, 0.9919893741607666]","[0.2349618375301361, 0.6399224400520325, -1.0411443710327148, 0.9948210716247559]","[0.3962463438510895, 0.6516651511192322, -0.9599170684814453, 0.9596949815750122]","[0.26002827286720276, 0.6123390793800354, -1.1429208517074585, 0.9761415719985962]","[0.3890363574028015, 0.6252772808074951, -0.914014995098114, 0.9589480757713318]","[0.2600816786289215, 0.5838589072227478, -1.117103934288025, 0.9729586839675903]","[0.39600953459739685, 0.6263655424118042, -0.8594611287117004, 0.9596051573753357]","[0.261079877614975, 0.5908504128456116, -1.0431567430496216, 0.9730006456375122]","[0.4347246289253235, 0.8388091325759888, -0.023468803614377975, 0.79680335521698]","[0.26340994238853455, 0.839028000831604, 0.02575131133198738, 0.8325176239013672]","[0.4328649938106537, 1.093834638595581, 0.11864227056503296, 0.003815529402345419]","[0.252480149269104, 1.0917242765426636, 0.25936242938041687, 0.002341938205063343]","[0.4132389724254608, 1.3062041997909546, 0.5761498212814331, 0.00021727883722633123]","[0.25375598669052124, 1.3151603937149048, 0.6671398282051086, 0.00015571183757856488]","[0.41246461868286133, 1.3408722877502441, 0.6066835522651672, 0.0008453560876660049]","[0.25345954298973083, 1.355647087097168, 0.6961130499839783, 0.00032595390803180635]","[0.4019602835178375, 1.3892453908920288, 0.30823713541030884, 0.00018682860536500812]","[0.2529415190219879, 1.3923066854476929, 0.3642551004886627, 0.0004705738683696836]""";
+      print('Using test landmark data from Bad_001_hand_landmarks.csv');
 
       List<Sign> testSigns = [];
-      List<String> csvFrames = [csvFrame1, csvFrame2];
+      // Using the new CSV data strings for Bad_001
+      List<String> csvFrames = [csvBadFrame1, csvBadFrame2];
+      int expectedLandmarksPerFrame = 21; // 21 hand landmarks
 
       for (String csvFrameData in csvFrames) {
         List<double> landmarks = [];
-        // Split by '","' to separate landmark entries, then remove leading/trailing quotes from the whole string
         List<String> landmarkEntries = csvFrameData.substring(1, csvFrameData.length -1).split('","');
 
         for (String entry in landmarkEntries) {
-          // Remove '[' and ']' and then split by ', '
-          List<String> valuesStr = entry.replaceAll('[', '').replaceAll(']', '').split(', ');
+          List<String> valuesStr = entry.replaceAll('[', '').replaceAll(']', '').split(',');
           if (valuesStr.length == 4) { // x, y, z, visibility
             landmarks.add(double.parse(valuesStr[0])); // x
             landmarks.add(double.parse(valuesStr[1])); // y
             landmarks.add(double.parse(valuesStr[2])); // z
             landmarks.add(double.parse(valuesStr[3])); // visibility
-            landmarks.add(1.0); // presence (assuming 1.0 as it's pose data)
+            landmarks.add(1.0); // presence (assuming 1.0 as per original logic)
           }
         }
         if (landmarks.isNotEmpty) {
-          // The CSV contains 33 pose landmarks. Each has 4 values. We add a 5th (presence).
-          // So, 33 * 5 = 165 doubles per frame.
-          if (landmarks.length == 165) {
-             testSigns.add(Sign(mediaPath: "test_csv_sign", landmarkData: [landmarks]));
+          // Each landmark has 5 values (x, y, z, visibility, presence).
+          // For hand data, we have 21 landmarks. So, 21 * 5 = 105 doubles per frame.
+          if (landmarks.length == expectedLandmarksPerFrame * 5) {
+             testSigns.add(Sign(mediaPath: "test_csv_hand_sign", landmarkData: [landmarks]));
           } else {
-            print("Warning: Parsed frame data length is ${landmarks.length}, expected 165. Skipping frame.");
+            print("Warning: Parsed frame data length is ${landmarks.length}, expected ${expectedLandmarksPerFrame * 5}. Skipping frame.");
           }
         }
       }
@@ -103,6 +113,7 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
         final fps = int.tryParse(dotenv.env['ANIMATION_FPS'] ?? '30') ?? 30;
         _controller.setSignData(testSigns, fps: fps);
         _controller.startAnimation();
+        _isShowingVideo = false; // Ensure landmarks are shown for test data
       } else {
         _errorMessage = "Failed to parse test CSV landmark data.";
       }
@@ -124,37 +135,67 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
 
       print('Translation response received with ${response.signs.length} signs');
       if (response.signs.isNotEmpty) {
-        // Fetch landmark data for each sign
-        final List<Sign> signsWithLandmarks = [];
-        for (final sign in response.signs) {
-          if (sign.mediaPath.isNotEmpty) {
-            try {
-              final landmarkData = await _fetchLandmarkData(backendUrl, sign.mediaPath);
-              signsWithLandmarks.add(Sign(
-                mediaPath: sign.mediaPath, // Keep original mediaPath if needed
-                landmarkData: landmarkData,
-              ));
-            } catch (e) {
-              print('Error fetching landmark data for ${sign.mediaPath}: $e');
-              // Add sign without landmark data if fetching fails
-              signsWithLandmarks.add(sign);
+        final firstSign = response.signs.first;
+        final String? signMediaType = firstSign.mediaType?.trim().toLowerCase(); // Null-safe, trim, lowercase
+        
+        print('Received first sign. Path: ${firstSign.mediaPath}, Raw mediaType: "${firstSign.mediaType}", Processed mediaType: "$signMediaType"');
+
+        if (signMediaType == "video") {
+          print('First sign mediaType is "video". Path: ${firstSign.mediaPath}');
+          _videoPlayerController = VideoPlayerController.networkUrl(Uri.parse(firstSign.mediaPath));
+          _initializeVideoPlayerFuture = _videoPlayerController!.initialize().then((_) {
+            _videoPlayerController!.play();
+            _videoPlayerController!.setLooping(true);
+          }).catchError((error) {
+            print('Error initializing video player: $error');
+            setState(() {
+              _errorMessage = 'Could not load video: $error';
+              _isShowingVideo = false;
+            });
+          });
+          setState(() {
+            _isShowingVideo = true;
+          });
+        } else {
+          print('First sign processed mediaType is not "video" (it is "$signMediaType"). Fetching landmarks if applicable.');
+          _isShowingVideo = false;
+          final List<Sign> signsWithLandmarks = [];
+          for (final sign_iter in response.signs) { // Renamed to avoid conflict with outer scope 'sign' if any
+            final String? currentSignMediaType = sign_iter.mediaType?.trim().toLowerCase(); // Null-safe, trim, lowercase
+            
+            print('Processing sign in loop. Path: ${sign_iter.mediaPath}, Raw mediaType: "${sign_iter.mediaType}", Processed mediaType: "$currentSignMediaType"');
+
+            if (currentSignMediaType != "video" && sign_iter.mediaPath.isNotEmpty) {
+              try {
+                print('Attempting to fetch landmark data for sign with processed mediaType: "$currentSignMediaType", path: ${sign_iter.mediaPath}');
+                final landmarkData = await _fetchLandmarkData(backendUrl, sign_iter.mediaPath);
+                signsWithLandmarks.add(Sign(
+                  mediaPath: sign_iter.mediaPath,
+                  mediaType: sign_iter.mediaType, // Keep original mediaType for the object
+                  landmarkData: landmarkData,
+                ));
+              } catch (e) {
+                print('Error fetching landmark data for ${sign_iter.mediaPath}: $e');
+                signsWithLandmarks.add(sign_iter);
+              }
+            } else {
+              if (currentSignMediaType == "video") {
+                print('Adding video sign to list without fetching landmarks: ${sign_iter.mediaPath}');
+              }
+              signsWithLandmarks.add(sign_iter);
             }
-          } else {
-             // Add sign without landmark data if mediaPath is empty
-            signsWithLandmarks.add(sign);
+          }
+
+          if (signsWithLandmarks.any((s) => s.landmarkData != null && s.landmarkData!.isNotEmpty)) {
+             _controller.setSignData(signsWithLandmarks, fps: fps);
+             _controller.startAnimation();
+          } else if (!signsWithLandmarks.any((s) => s.mediaType?.trim().toLowerCase() == "video")) { 
+             setState(() {
+               _errorMessage = 'No landmark data available for animation, and no video found.';
+             });
+             print('No landmark data available for animation, and no video found.');
           }
         }
-
-        if (signsWithLandmarks.any((sign) => sign.landmarkData != null)) {
-           _controller.setSignData(signsWithLandmarks, fps: fps);
-           _controller.startAnimation(); // Will only animate if appropriate
-        } else {
-           setState(() {
-             _errorMessage = 'No landmark data available for animation.';
-           });
-           print('No landmark data available for animation.');
-        }
-
       } else {
         setState(() {
           _errorMessage = 'No signs received for the translation.';
@@ -171,6 +212,12 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  bool _isLikelyVideoUrl(String url) {
+    final lcUrl = url.toLowerCase();
+    return lcUrl.endsWith('.mp4') || lcUrl.endsWith('.webm') || lcUrl.endsWith('.mov') || lcUrl.endsWith('.avi');
+    // Add more video extensions if needed, or use a more robust check
   }
 
   // Function to fetch landmark data from backend
@@ -208,6 +255,7 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
   @override
   void dispose() {
     _controller.dispose();
+    _videoPlayerController?.dispose(); // Dispose video controller
     super.dispose();
   }
 
@@ -360,13 +408,57 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
       return Center(child: Text(_errorMessage, style: const TextStyle(color: Colors.red)));
     }
 
+    // Video Player UI
+    if (_isShowingVideo && _videoPlayerController != null && _initializeVideoPlayerFuture != null) {
+      return FutureBuilder(
+        future: _initializeVideoPlayerFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.done && _videoPlayerController!.value.isInitialized) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AspectRatio(
+                    aspectRatio: _videoPlayerController!.value.aspectRatio,
+                    child: VideoPlayer(_videoPlayerController!),
+                  ),
+                  const SizedBox(height: 10),
+                  IconButton(
+                    icon: Icon(
+                      _videoPlayerController!.value.isPlaying ? Icons.pause : Icons.play_arrow,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _videoPlayerController!.value.isPlaying
+                            ? _videoPlayerController!.pause()
+                            : _videoPlayerController!.play();
+                      });
+                    },
+                  ),
+                   Text(
+                    'Playing video: ${_controller.currentSign?.mediaPath ?? ''}', // Display current sign's media path
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            );
+          } else if (snapshot.hasError) {
+             return Center(child: Text("Error loading video: ${snapshot.error}", style: const TextStyle(color: Colors.red)));
+          }
+          return const Center(child: CircularProgressIndicator());
+        },
+      );
+    }
+
+    // Landmark Animation UI (Fallback or if _useTestData is true and it's landmark data)
+    // This section is now secondary if video is available and chosen.
     if (_useTestData && _controller.signs.isNotEmpty && _controller.signs[0].landmarkData != null && _controller.signs[0].landmarkData!.isNotEmpty) {
        print("Displaying test data with LandmarkPainter");
       return CustomPaint(
         painter: LandmarkPainter(
           landmarkData: _controller.signs[0].landmarkData![0], // Display first frame of first sign
-          numberOfPoseLandmarks: 33, // From CSV
-          numberOfHandLandmarks: 0,  // No hand data in this CSV
+          numberOfPoseLandmarks: 0, // No pose landmarks in this test data
+          numberOfHandLandmarks: 21,  // 21 hand landmarks
           isWorldLandmarks: false, // CSV data is likely 2D screen coordinates
         ),
         child: Container(),
@@ -375,14 +467,15 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
       return CustomPaint(
         painter: LandmarkPainter(
           landmarkData: _controller.currentFrameLandmarks,
-          numberOfPoseLandmarks: 33, 
-          numberOfHandLandmarks: 21, 
-          isWorldLandmarks: false, // Assuming screen coordinates for fetched data too for now
+          numberOfPoseLandmarks: 0, // Assuming no pose landmarks if primarily for sign language hands
+          numberOfHandLandmarks: 21, // Assuming 21 hand landmarks per hand
+          isWorldLandmarks: false, // Assuming 2D image landmarks
         ),
         child: Container(),
       );
     }
 
+    // Consumer for Landmark Animation (if not showing video and landmarks are available)
     return Consumer<SignAnimationController>(
       builder: (context, controller, child) {
         final currentSign = controller.currentSign;
@@ -393,7 +486,8 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
           );
         }
 
-        // Check if landmark data is available
+        // Check if landmark data is available FOR THE CURRENT SIGN
+        // This is the "commented out" part - only shown if video is not the primary content for this screen.
         if (currentSign.landmarkData != null && currentSign.landmarkData!.isNotEmpty) {
           // Use LandmarkPainter to render animation
           return Center(
@@ -411,8 +505,8 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
                    child: CustomPaint(
                      painter: LandmarkPainter(
                        landmarkData: controller.currentFrameLandmarks, // Use the getter
-                       numberOfPoseLandmarks: 33, // Assuming 33 pose landmarks
-                       numberOfHandLandmarks: 21, // Assuming 21 hand landmarks per hand (total 42 for two hands, but painter expects per hand?) - Let's assume 21 per hand for now based on typical MediaPipe output structure
+                       numberOfPoseLandmarks: 0, // Assuming no pose landmarks if primarily for sign language hands
+                       numberOfHandLandmarks: 21, // Assuming 21 hand landmarks per hand
                        isWorldLandmarks: false, // Assuming 2D image landmarks
                      ),
                      child: Container(), // Empty container as child
@@ -444,15 +538,19 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
             ),
           );
         } else {
-          // If no landmark data, display media path or a placeholder
+          // If no landmark data for the current sign, display media path or a placeholder
+          // This might also be hit if the sign was supposed to be a video but failed to load earlier
+          // or if it's a non-video, non-landmark sign.
           return Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.sign_language, size: 64, color: Colors.orange),
+                const Icon(Icons.videocam_off, size: 64, color: Colors.grey), // Changed icon
                 const SizedBox(height: 16),
                 Text(
-                  'No landmark data available for animation.',
+                  _isLikelyVideoUrl(currentSign.mediaPath)
+                    ? 'Video content not available or failed to load.'
+                    : 'No landmark data available for animation.',
                   style: Theme.of(context).textTheme.bodyMedium,
                   textAlign: TextAlign.center,
                 ),
