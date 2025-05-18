@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import random
+import logging
 from enum import Enum
-from typing import List, Type, Union
+from typing import List, Type, Union, Tuple # Added Tuple for type hint
 
 from sign_language_translator.config.enums import (
     SignEmbeddingModels,
@@ -124,59 +125,103 @@ class ConcatenativeSynthesis(TextToSignModel):
 
         self._sign_embedding_model = model
 
-    def translate(self, text: str, *args, **kwargs) -> Sign:
+    def translate(self, text: str, *args, **kwargs) -> List[str]: # Changed return type hint
         """
-        Translate text to sign language.
+        Translate text to a sequence of sign language resource paths.
 
         Args:
             text: The input text to be translated.
 
         Returns:
-            The translated sign language sentence.
-
+            A list of strings, where each string is the path to a sign resource (e.g., video file).
         """
 
-        sign_language_sentence = None
+        # sign_language_sentence = None # No longer needed
         video_labels = []
+        logging.debug(f"ConcatenativeSynthesis.translate: START. Input text: '{text}'")
 
         text = self.text_language.preprocess(text)
+        logging.debug(f"ConcatenativeSynthesis.translate: Preprocessed text: '{text}'")
+        if not text:
+            logging.warning(f"ConcatenativeSynthesis.translate: Preprocessing resulted in empty or None text. Input was: '{text}'")
+            return [] # Return empty list if preprocessing fails
+
         sentences = self.text_language.sentence_tokenize(text)
-        for sentence in sentences:
+        logging.debug(f"ConcatenativeSynthesis.translate: Sentences after sentence_tokenize: {sentences}")
+
+        for sentence_idx, sentence in enumerate(sentences):
+            logging.debug(f"ConcatenativeSynthesis.translate: Processing sentence {sentence_idx}: '{sentence}'")
             tokens = self.text_language.tokenize(sentence)
+            logging.debug(f"ConcatenativeSynthesis.translate: Tokens after tokenize: {tokens}")
             tags = self.text_language.get_tags(tokens)
+            logging.debug(f"ConcatenativeSynthesis.translate: Tags after get_tags: {tags}")
 
             tokens, tags, contexts = self.sign_language.restructure_sentence(
                 tokens, tags=tags
             )
+            logging.debug(f"ConcatenativeSynthesis.translate: After restructure_sentence - Tokens: {tokens}, Tags: {tags}, Contexts: {contexts}")
+
             sign_dicts = self.sign_language.tokens_to_sign_dicts(
                 tokens, tags=tags, contexts=contexts
             )
+            logging.debug(f"ConcatenativeSynthesis.translate: Sign dictionaries from tokens_to_sign_dicts: {sign_dicts}")
 
-            video_labels.extend(
-                [
-                    label
-                    for sign_dict in sign_dicts
-                    for label in random.choices(
-                        sign_dict[self.sign_language.SignDictKeys.SIGNS.value],
-                        weights=sign_dict[self.sign_language.SignDictKeys.WEIGHTS.value],  # type: ignore
+            # Extract labels from sign_dicts
+            current_sentence_labels = []
+            for sign_dict in sign_dicts:
+                signs_key = self.sign_language.SignDictKeys.SIGNS.value
+                weights_key = self.sign_language.SignDictKeys.WEIGHTS.value
+                if signs_key in sign_dict and sign_dict[signs_key]:
+                    chosen_sign_sequence = random.choices(
+                        sign_dict[signs_key],
+                        weights=sign_dict.get(weights_key), # Use .get() for safety
                         k=1,
-                    )[0]
-                ]
-            )
+                    )[0] # random.choices returns a list
+                    logging.debug(f"ConcatenativeSynthesis.translate: Chosen sign sequence for sign_dict '{sign_dict}': {chosen_sign_sequence}")
+                    current_sentence_labels.extend(chosen_sign_sequence)
+                else:
+                    logging.warning(f"ConcatenativeSynthesis.translate: No signs found or empty signs list in sign_dict: {sign_dict}")
 
-        signs = self._map_labels_to_sign(video_labels)
-        # TODO: Trim signs where hand is just being raised from or lowered to the resting position
-        sign_language_sentence = self.sign_format.concatenate(signs)
+            logging.debug(f"ConcatenativeSynthesis.translate: Labels extracted for sentence {sentence_idx}: {current_sentence_labels}")
+            video_labels.extend(current_sentence_labels)
 
-        return sign_language_sentence
+        logging.debug(f"ConcatenativeSynthesis.translate: All video_labels collected after processing all sentences: {video_labels}")
 
-    def _map_labels_to_sign(self, labels: List[str]) -> List[Sign]:
-        return [
-            self.sign_format.load_asset(self._prepare_resource_name(label))
-            for label in labels
-        ]
+        # Get the list of resource names (paths) for the labels
+        resource_names = self._map_labels_to_sign(video_labels)
+        logging.debug(f"ConcatenativeSynthesis.translate: Resource names after _map_labels_to_sign: {resource_names}")
+
+        # Skip concatenation, return the list of resource names directly
+        logging.debug(f"ConcatenativeSynthesis.translate: END. Returning the list of resource names.")
+        return resource_names # Return the list of resource names
+
+    def _map_labels_to_sign(self, labels: List[str]) -> List[str]: # Changed return type hint
+        """Maps labels to their corresponding resource names (paths) after validation."""
+        logging.debug(f"ConcatenativeSynthesis._map_labels_to_sign: Mapping labels to resource names: {labels}")
+        mapped_resource_names = [] # Changed variable name
+        for label in labels:
+            resource_name = None # Initialize for potential error logging
+            try:
+                resource_name = self._prepare_resource_name(label)
+                logging.debug(f"ConcatenativeSynthesis._map_labels_to_sign: Prepared resource name for label '{label}': '{resource_name}'")
+                # Attempt to instantiate the sign object to validate the resource name/path
+                _ = self.sign_format(resource_name) # We don't need the object itself, just check if it loads
+                logging.debug(f"ConcatenativeSynthesis._map_labels_to_sign: Successfully validated resource for label '{label}': {resource_name}")
+                mapped_resource_names.append(resource_name) # Append the name, not the object
+            except Exception as e_load:
+                # Log the full traceback
+                logging.error(f"ConcatenativeSynthesis._map_labels_to_sign: Failed to validate/load asset for label '{label}' with resource name '{resource_name}': {e_load}", exc_info=True)
+                # Skip the problematic label
+                continue
+        logging.debug(f"ConcatenativeSynthesis._map_labels_to_sign: Finished mapping. Resulting resource names: {mapped_resource_names}")
+        return mapped_resource_names # Return the list of names
 
     def _prepare_resource_name(self, label, person=None, camera=None, sep="_"):
+        # This method might be overridden by subclasses (like CustomSinhalaConcatenativeSynthesis)
+        # Keep the base implementation simple or add logging if needed here too.
+        logging.debug(f"ConcatenativeSynthesis._prepare_resource_name: Preparing resource name for label: '{label}'")
+
+        # --- Start of original base class implementation ---
         if person is not None:
             label = f"{label}{sep}{person}"
         if camera is not None:
@@ -196,6 +241,8 @@ class ConcatenativeSynthesis(TextToSignModel):
             )
 
         name = f"{directory}/{label}.{extension}"
+        logging.debug(f"ConcatenativeSynthesis._prepare_resource_name: Prepared resource name: '{name}'")
+        # --- End of original base class implementation ---
 
         return name
 

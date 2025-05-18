@@ -34,6 +34,7 @@ __all__ = [
     "SignFormats",
     "ModelCodes",
     "SignEmbeddingModels",
+    "Tags", # Added Tags
     "normalize_short_code",
 ]
 
@@ -102,6 +103,7 @@ class TextLanguages(Enum, metaclass=PrintableEnumMeta):
     URDU = "ur"
     ENGLISH = "en"
     HINDI = "hi"
+    SINHALA = "si" # Added Sinhala
 
 
 class SignLanguages(Enum, metaclass=PrintableEnumMeta):
@@ -206,6 +208,28 @@ class SignEmbeddingModels(Enum, metaclass=PrintableEnumMeta):
     MEDIAPIPE_IMAGE = "mediapipe-image"
 
     # TODO: rename `Models` in class name to avoid confusion with `ModelCodes`
+
+
+class Tags(Enum, metaclass=PrintableEnumMeta):
+    """
+    Enumeration of common linguistic tags for tokens.
+    """
+    UNKNOWN = "UNK"
+    DEFAULT = "DEFAULT"  # Added
+    SPACE = "SPACE"      # Added
+    NAME = "NAME"        # Added
+    NOUN = "NOUN"
+    VERB = "VERB"
+    ADJECTIVE = "ADJ"
+    ADVERB = "ADV"
+    PRONOUN = "PRON"
+    PREPOSITION = "PREP"
+    CONJUNCTION = "CONJ"
+    INTERJECTION = "INTJ"
+    PUNCTUATION = "PUNCT"
+    NUMBER = "NUM"
+    PROPER_NOUN = "PROPN"
+    # Add more tags as needed
 
 
 class ModelCodeGroups(Enum, metaclass=PrintableEnumMeta):

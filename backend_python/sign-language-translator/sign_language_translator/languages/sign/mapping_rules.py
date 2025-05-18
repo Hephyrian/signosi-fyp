@@ -15,7 +15,7 @@ including applicability checks and actions to be taken when the rule is applied.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List, Set
+from typing import Any, Callable, Dict, List, Set, Optional, Tuple, Union
 
 
 class MappingRule(ABC):
@@ -101,13 +101,19 @@ class DirectMappingRule(MappingRule):
     """Mapping rule that directly maps keys to values.
 
     Args:
-        token_to_object (Dict[str, Any]): Dictionary mapping tokens to some objects.
         priority (int): Priority of the rule.
+        token_to_object (Dict[str, Any], optional): Dictionary mapping tokens to some objects.
+        map_dict (Dict[str, Any], optional): Alternative name for token_to_object.
     """
 
-    def __init__(self, token_to_object: Dict[str, Any], priority: int) -> None:
+    def __init__(self, priority: int, token_to_object: Optional[Dict[str, Any]] = None, map_dict: Optional[Dict[str, Any]] = None) -> None:
         super().__init__()
-        self.token_to_object = token_to_object
+        if token_to_object is not None:
+            self.token_to_object = token_to_object
+        elif map_dict is not None:
+            self.token_to_object = map_dict
+        else:
+            raise ValueError("DirectMappingRule requires either 'token_to_object' or 'map_dict' to be provided.")
         self._priority = priority
 
     def is_applicable(self, token, tag=None, context=None) -> bool:
@@ -142,9 +148,28 @@ class CharacterByCharacterMappingRule(MappingRule):
         self._priority = priority
 
     def is_applicable(self, token, tag=None, context=None) -> bool:
-        return tag in self.allowed_tags and all(
-            char in self.token_to_object for char in token
-        )
+        # Check if any tag in the potentially nested tag structure is allowed
+        tag_is_allowed = False
+        if isinstance(tag, (list, tuple, set)):
+            # Flatten potential list of lists (like [['UNKNOWN']])
+            flat_tags = []
+            for item in tag:
+                if isinstance(item, (list, tuple, set)):
+                    flat_tags.extend(item)
+                else:
+                    flat_tags.append(item)
+            
+            # Check if any flattened tag is in allowed_tags
+            tag_is_allowed = any(t in self.allowed_tags for t in flat_tags)
+        elif tag is not None:
+            # Handle single tag case
+            tag_is_allowed = tag in self.allowed_tags
+        # If tag is None, tag_is_allowed remains False, which is usually correct unless allowed_tags includes None
+
+        # Check if all characters in the token are mappable
+        chars_are_mappable = all(char in self.token_to_object for char in token)
+
+        return tag_is_allowed and chars_are_mappable
 
     def apply(self, token) -> List[Any]:
         """Apply the mapping rule to the given token.

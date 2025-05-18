@@ -23,7 +23,6 @@ class Mapping(TypedDict):
     components: List[str]
     """list of sign videos that can make up the video identified by label"""
     label: str
-    """the filename of the sign video"""
     token: Dict[str, List[str]]
     """maps language codes to list of tokens that correspond to the label"""
     gloss: Dict[str, List[str]]
@@ -149,15 +148,34 @@ class Vocab:
         ]
         for filepath in mapping_filepaths:
             with open(filepath, "r", encoding="utf-8") as f:
-                self.word_to_labels.update(
-                    self._make_word_to_labels(
-                        self.language,
-                        self.country,
-                        self.organization,
-                        self.part_number,
-                        json.load(f),
+                loaded_json_data = json.load(f)
+                datasets_to_process = []
+                if isinstance(loaded_json_data, list):
+                    if all(isinstance(item, dict) for item in loaded_json_data):
+                        datasets_to_process = loaded_json_data
+                    else:
+                        # print(f"Warning: File {filepath} contains a list with non-dictionary items, skipping for Vocab.") # Or log
+                        continue
+                elif isinstance(loaded_json_data, dict):
+                    if "country" in loaded_json_data and "organization" in loaded_json_data and "mapping" in loaded_json_data:
+                        datasets_to_process = [loaded_json_data] # Wrap it in a list
+                    else:
+                        # print(f"Warning: File {filepath} is a dictionary but not in expected MappingDataset format, skipping for Vocab.") # Or log
+                        continue
+                else:
+                    # print(f"Warning: File {filepath} does not contain a list or a valid single MappingDataset, skipping for Vocab.") # Or log
+                    continue
+                
+                if datasets_to_process: # only proceed if there's valid data
+                    self.word_to_labels.update(
+                        self._make_word_to_labels(
+                            self.language,
+                            self.country,
+                            self.organization,
+                            self.part_number,
+                            datasets_to_process,
+                        )
                     )
-                )
 
         self.supported_tokens = set(self.word_to_labels)
         self.ambiguous_to_unambiguous = self._make_disambiguation_map(

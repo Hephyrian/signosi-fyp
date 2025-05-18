@@ -80,4 +80,72 @@ To build and run the backend using Docker:
 *   `/api/speech-to-text/asynchronous` (POST): For asynchronous speech recognition of audio files.
 *   `/api/auth/login` (POST): User login.
 *   `/api/auth/register` (POST): User registration.
-*   `/api/data` (GET, POST): Placeholder for data operations. 
+*   `/api/data` (GET, POST): Placeholder for data operations.
+
+# Video Landmark Extraction Script
+
+This script processes video files to extract hand landmarks using MediaPipe and OpenCV.
+
+## Setup
+
+1.  **Create a virtual environment (recommended):**
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    ```
+
+2.  **Install dependencies:**
+    Navigate to the `backend_python` directory and run:
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+## Usage
+
+The script is located in `backend_python/scripts/process_videos.py`.
+
+Run the script from the command line, providing the path to an input video file or a directory containing video files, and the path to an output directory where the CSV files will be saved.
+
+**Command:**
+
+```bash
+python backend_python/scripts/process_videos.py <input_path> <output_base_directory>
+```
+
+**Arguments:**
+
+*   `<input_path>`: Path to a single video file (.mp4, .mov, .avi) or a directory containing video files.
+*   `<output_base_directory>`: The base directory where a subfolder named `hand_landmarks_csv` will be created to store the output CSV files. For example, if you provide `backend_python/processed_data`, the CSVs will be saved in `backend_python/processed_data/hand_landmarks_csv/`.
+
+**Examples:**
+
+1.  **Processing a single video file:**
+    ```bash
+    python backend_python/scripts/process_videos.py backend_python/videos/my_video.mp4 backend_python/processed_data
+    ```
+    This will create `backend_python/processed_data/hand_landmarks_csv/my_video_hand_landmarks.csv`.
+
+2.  **Processing all videos in a directory:**
+    ```bash
+    python backend_python/scripts/process_videos.py backend_python/videos/my_video_collection/ backend_python/processed_data
+    ```
+    This will process all supported video files in `backend_python/videos/my_video_collection/` and save the corresponding CSV files in `backend_python/processed_data/hand_landmarks_csv/`.
+
+## Output
+
+For each processed video, a CSV file is generated in the `<output_base_directory>/hand_landmarks_csv/` directory.
+
+*   **Filename format:** `video_name_hand_landmarks.csv`
+*   **CSV Columns:**
+    *   `frame_number`: The frame number in the video (0-indexed).
+    *   `hand_label`: Label of the hand ('Left' or 'Right', or 'Unknown' if not reliably determined).
+    *   `landmark_index`: Index of the landmark (0-20) as defined by MediaPipe Hands.
+    *   `x`: Normalized x-coordinate of the landmark.
+    *   `y`: Normalized y-coordinate of the landmark.
+    *   `z`: Normalized z-coordinate of the landmark (depth from the camera).
+    *   `visibility`: Visibility of the landmark (a value typically between 0.0 and 1.0).
+
+## Error Handling and Logging
+
+*   The script includes basic error handling for file I/O and video processing.
+*   Progress and error messages are logged to the console. 
