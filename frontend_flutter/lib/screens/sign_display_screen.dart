@@ -30,13 +30,20 @@ class SignDisplayScreen extends StatefulWidget {
 class _SignDisplayScreenState extends State<SignDisplayScreen> {
   bool _isLoading = true;
   String _errorMessage = '';
-  SignAnimationController _controller = SignAnimationController();
+  final SignAnimationController _controller = SignAnimationController(); // Final for field initializer
   bool _useTestData = false; // Default to false to allow video playback path
 
-  // Video Player State
-  VideoPlayerController? _videoPlayerController;
-  Future<void>? _initializeVideoPlayerFuture;
-  bool _isShowingVideo = false;
+  // Sequential Playback State
+  List<Sign> _allSigns = [];
+  int _currentSignIndex = 0;
+
+  // Video Player State for the current sign
+  VideoPlayerController? _activeVideoPlayerController;
+  Future<void>? _initializeActiveVideoPlayerFuture;
+  bool _isShowingVideoContent = false; // To determine if current sign should display video or landmark
+
+  // FPS for animation - loaded from .env
+  int _animationFps = 30;
 
   // Test data from Bad_001_hand_landmarks.csv (Right hand, 21 landmarks per frame)
   // Frame 0
@@ -53,7 +60,8 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
 
   Future<void> _initialize() async {
     await _loadEnvironmentVariables();
-    await _fetchTranslationData();
+    _animationFps = int.tryParse(dotenv.env['ANIMATION_FPS'] ?? '30') ?? 30;
+    await _fetchTranslationAndPlay();
   }
 
   Future<void> _loadEnvironmentVariables() async {
@@ -65,161 +73,308 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
     }
   }
 
-  Future<void> _fetchTranslationData() async {
+  Future<void> _fetchTranslationAndPlay() async {
     setState(() {
       _isLoading = true;
       _errorMessage = '';
-      _isShowingVideo = false; // Reset video state
+      _isShowingVideoContent = false;
+      _allSigns.clear();
+      _currentSignIndex = 0;
     });
-    // Dispose previous video controller if any
-    await _videoPlayerController?.dispose();
-    _videoPlayerController = null;
-    _initializeVideoPlayerFuture = null;
+
+    // Dispose previous video controller if any and reset animation controller
+    await _activeVideoPlayerController?.dispose();
+    _activeVideoPlayerController = null;
+    _initializeActiveVideoPlayerFuture = null;
+    _controller.stopAnimation();
+    _controller.clearData();
 
     if (_useTestData) {
-      print('Using test landmark data from Bad_001_hand_landmarks.csv');
-
-      List<Sign> testSigns = [];
-      // Using the new CSV data strings for Bad_001
-      List<String> csvFrames = [csvBadFrame1, csvBadFrame2];
-      int expectedLandmarksPerFrame = 21; // 21 hand landmarks
-
-      for (String csvFrameData in csvFrames) {
-        List<double> landmarks = [];
-        List<String> landmarkEntries = csvFrameData.substring(1, csvFrameData.length -1).split('","');
-
-        for (String entry in landmarkEntries) {
-          List<String> valuesStr = entry.replaceAll('[', '').replaceAll(']', '').split(',');
-          if (valuesStr.length == 4) { // x, y, z, visibility
-            landmarks.add(double.parse(valuesStr[0])); // x
-            landmarks.add(double.parse(valuesStr[1])); // y
-            landmarks.add(double.parse(valuesStr[2])); // z
-            landmarks.add(double.parse(valuesStr[3])); // visibility
-            landmarks.add(1.0); // presence (assuming 1.0 as per original logic)
-          }
-        }
-        if (landmarks.isNotEmpty) {
-          // Each landmark has 5 values (x, y, z, visibility, presence).
-          // For hand data, we have 21 landmarks. So, 21 * 5 = 105 doubles per frame.
-          if (landmarks.length == expectedLandmarksPerFrame * 5) {
-             testSigns.add(Sign(mediaPath: "test_csv_hand_sign", landmarkData: [landmarks]));
-          } else {
-            print("Warning: Parsed frame data length is ${landmarks.length}, expected ${expectedLandmarksPerFrame * 5}. Skipping frame.");
-          }
-        }
-      }
-
-      if (testSigns.isNotEmpty) {
-        final fps = int.tryParse(dotenv.env['ANIMATION_FPS'] ?? '30') ?? 30;
-        _controller.setSignData(testSigns, fps: fps);
-        _controller.startAnimation();
-        _isShowingVideo = false; // Ensure landmarks are shown for test data
-      } else {
-        _errorMessage = "Failed to parse test CSV landmark data.";
-      }
-      setState(() {
-        _isLoading = false;
-      });
+      _setupTestDataAndPlay();
       return;
     }
 
     try {
-      final fps = int.tryParse(dotenv.env['ANIMATION_FPS'] ?? '30') ?? 30;
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://127.0.0.1:8080'; // Get backend URL
-
+      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://127.0.0.1:8080';
       print('Fetching translation for text: ${widget.textToTranslate}, language: ${widget.sourceLanguage}');
       final response = await TranslationService.translateTextToSign(
         widget.textToTranslate,
         widget.sourceLanguage,
+        baseUrl: backendUrl, // Pass baseUrl if your service needs it
       );
 
       print('Translation response received with ${response.signs.length} signs');
       if (response.signs.isNotEmpty) {
-        final firstSign = response.signs.first;
-        final String? signMediaType = firstSign.mediaType?.trim().toLowerCase(); // Null-safe, trim, lowercase
-        
-        print('Received first sign. Path: ${firstSign.mediaPath}, Raw mediaType: "${firstSign.mediaType}", Processed mediaType: "$signMediaType"');
-
-        if (signMediaType == "video") {
-          print('First sign mediaType is "video". Path: ${firstSign.mediaPath}');
-          _videoPlayerController = VideoPlayerController.networkUrl(Uri.parse(firstSign.mediaPath));
-          _initializeVideoPlayerFuture = _videoPlayerController!.initialize().then((_) {
-            _videoPlayerController!.play();
-            _videoPlayerController!.setLooping(true);
-          }).catchError((error) {
-            print('Error initializing video player: $error. Attempted URL: ${firstSign.mediaPath}');
-            setState(() {
-              if (mounted) {
-                _errorMessage = 'Failed to load video: The content was not found on the server (Error 404).\nAttempted URL: ${firstSign.mediaPath}';
-                _isShowingVideo = false;
-              }
-            });
-          });
-          setState(() {
-            _isShowingVideo = true;
-          });
-        } else {
-          print('First sign processed mediaType is not "video" (it is "$signMediaType"). Fetching landmarks if applicable.');
-          _isShowingVideo = false;
-          final List<Sign> signsWithLandmarks = [];
-          for (final sign_iter in response.signs) { // Renamed to avoid conflict with outer scope 'sign' if any
-            final String? currentSignMediaType = sign_iter.mediaType?.trim().toLowerCase(); // Null-safe, trim, lowercase
-            
-            print('Processing sign in loop. Path: ${sign_iter.mediaPath}, Raw mediaType: "${sign_iter.mediaType}", Processed mediaType: "$currentSignMediaType"');
-
-            if (currentSignMediaType != "video" && sign_iter.mediaPath.isNotEmpty) {
-              try {
-                print('Attempting to fetch landmark data for sign with processed mediaType: "$currentSignMediaType", path: ${sign_iter.mediaPath}');
-                final landmarkData = await _fetchLandmarkData(backendUrl, sign_iter.mediaPath);
-                signsWithLandmarks.add(Sign(
-                  mediaPath: sign_iter.mediaPath,
-                  mediaType: sign_iter.mediaType, // Keep original mediaType for the object
-                  landmarkData: landmarkData,
-                ));
-              } catch (e) {
-                print('Error fetching landmark data for ${sign_iter.mediaPath}: $e');
-                signsWithLandmarks.add(sign_iter);
-              }
-            } else {
-              if (currentSignMediaType == "video") {
-                print('Adding video sign to list without fetching landmarks: ${sign_iter.mediaPath}');
-              }
-              signsWithLandmarks.add(sign_iter);
-            }
-          }
-
-          if (signsWithLandmarks.any((s) => s.landmarkData != null && s.landmarkData!.isNotEmpty)) {
-             _controller.setSignData(signsWithLandmarks, fps: fps);
-             _controller.startAnimation();
-          } else if (!signsWithLandmarks.any((s) => s.mediaType?.trim().toLowerCase() == "video")) { 
-             setState(() {
-               _errorMessage = 'No landmark data available for animation, and no video found.';
-             });
-             print('No landmark data available for animation, and no video found.');
-          }
-        }
+        _allSigns = response.signs;
+        _playSignAtIndex(_currentSignIndex); // This will eventually set _isLoading = false
       } else {
         setState(() {
           _errorMessage = 'No signs received for the translation.';
+          _isLoading = false;
         });
         print('No signs received for the translation.');
       }
     } catch (e) {
       setState(() {
         _errorMessage = 'Translation error: $e';
+        _isLoading = false;
       });
       print('Translation error: $e');
-    } finally {
+    }
+  }
+
+  void _setupTestDataAndPlay() {
+    print('Using test landmark data from Bad_001_hand_landmarks.csv');
+    List<Sign> testDataSigns = [];
+    List<String> csvFrames = [csvBadFrame1, csvBadFrame2];
+    int expectedLandmarksPerFrame = 21;
+
+    List<List<double>> signLandmarkFrames = [];
+    for (String csvFrameData in csvFrames) {
+      List<double> landmarks = [];
+      // Robust parsing for CSV frame data
+      try {
+        List<String> landmarkEntries = csvFrameData
+            .substring(1, csvFrameData.length - 1) // Remove outer quotes
+            .split('","'); // Split by delimiter
+
+        for (String entry in landmarkEntries) {
+          List<String> valuesStr = entry.replaceAll('[', '').replaceAll(']', '').split(',');
+          if (valuesStr.length == 4) { // x, y, z, visibility
+            landmarks.add(double.parse(valuesStr[0].trim())); // x
+            landmarks.add(double.parse(valuesStr[1].trim())); // y
+            landmarks.add(double.parse(valuesStr[2].trim())); // z
+            landmarks.add(double.parse(valuesStr[3].trim())); // visibility
+            landmarks.add(1.0); // presence (assuming 1.0)
+          }
+        }
+      } catch (e) {
+        print("Error parsing CSV frame: $e. Frame data: $csvFrameData");
+        continue; // Skip this frame if parsing fails
+      }
+      
+      if (landmarks.isNotEmpty && landmarks.length == expectedLandmarksPerFrame * 5) {
+        signLandmarkFrames.add(landmarks);
+      } else {
+        print("Warning: Parsed test frame data length is ${landmarks.length}, expected ${expectedLandmarksPerFrame * 5}. Skipping frame.");
+      }
+    }
+
+    if (signLandmarkFrames.isNotEmpty) {
+      testDataSigns.add(Sign(mediaPath: "test_csv_hand_sign", landmarkData: signLandmarkFrames, mediaType: "landmark"));
+      // Example: Add a second (dummy) sign for sequence testing
+      // testDataSigns.add(Sign(mediaPath: "test_video_placeholder.mp4", mediaType: "video")); // requires a valid video for testing this path
+    }
+    
+    if (testDataSigns.isNotEmpty) {
+      _allSigns = testDataSigns;
+      _playSignAtIndex(_currentSignIndex);
+    } else {
+      _errorMessage = "Failed to parse test CSV landmark data for sequential play.";
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _playSignAtIndex(int index) async {
+    if (!mounted) return;
+
+    setState(() {
+      _isLoading = true;
+      _isShowingVideoContent = false;
+      _errorMessage = ''; 
+    });
+
+    if (_activeVideoPlayerController != null) {
+      _activeVideoPlayerController!.removeListener(_videoPlayerListener);
+      await _activeVideoPlayerController!.dispose();
+      _activeVideoPlayerController = null;
+      _initializeActiveVideoPlayerFuture = null;
+    }
+
+    _controller.stopAnimation();
+    _controller.clearData();
+    _controller.onAnimationComplete = null;
+
+    if (index < 0 || index >= _allSigns.length) {
+      print('Index out of bounds or no signs to play. Index: $index, Total signs: ${_allSigns.length}');
       setState(() {
+        _errorMessage = _allSigns.isEmpty ? "No signs to display." : "Reached end of signs.";
         _isLoading = false;
+      });
+      return;
+    }
+
+    _currentSignIndex = index;
+    final Sign currentSign = _allSigns[_currentSignIndex];
+    final String? signMediaType = currentSign.mediaType?.trim().toLowerCase();
+
+    print('Playing sign at index $index: Path: ${currentSign.mediaPath}, Type: $signMediaType');
+
+    if (signMediaType == "video") {
+      setState(() { _isShowingVideoContent = true; });
+      if (currentSign.mediaPath.isEmpty || !_isLikelyVideoUrl(currentSign.mediaPath)) {
+          print('Video path is empty or not a valid URL for sign $index: ${currentSign.mediaPath}');
+          _errorMessage = 'Invalid video path for sign ${index + 1}.';
+          _handleUnplayableSign();
+          return;
+      }
+      try {
+        _activeVideoPlayerController = VideoPlayerController.networkUrl(Uri.parse(currentSign.mediaPath));
+        _initializeActiveVideoPlayerFuture = _activeVideoPlayerController!.initialize().then((_) {
+          if (!mounted) return;
+          _activeVideoPlayerController!.play();
+          _activeVideoPlayerController!.setLooping(false); // Ensure video does not loop
+          _activeVideoPlayerController!.addListener(_videoPlayerListener);
+          setState(() { _isLoading = false; });
+        }).catchError((error) {
+          if (!mounted) return;
+          print('Error initializing video player for sign $index: $error. URL: ${currentSign.mediaPath}');
+          _errorMessage = 'Failed to load video for sign ${index + 1}: $error';
+          _handleUnplayableSign(); // This will set isLoading = false and attempt to advance
+        });
+      } catch (e) { // Catch synchronous errors from Uri.parse or VideoPlayerController constructor
+         if (!mounted) return;
+         print('Synchronous error setting up video player for sign $index: $e');
+        _errorMessage = 'Error setting up video for sign ${index + 1}: $e';
+        _handleUnplayableSign();
+      }
+    } else if (signMediaType != "video") { // Could be landmark or other non-video types
+        setState(() { _isShowingVideoContent = false; });
+        List<List<double>>? landmarksToAnimate = currentSign.landmarkData;
+
+        if (landmarksToAnimate == null && 
+            currentSign.mediaPath.isNotEmpty &&
+            (currentSign.mediaPath.toLowerCase().endsWith('.json') || currentSign.mediaPath.startsWith('http'))) {
+            try {
+                print('Landmark data is null for sign $index, attempting to fetch from: ${currentSign.mediaPath}');
+                final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://127.0.0.1:8080';
+                landmarksToAnimate = await _fetchLandmarkData(backendUrl, currentSign.mediaPath);
+            } catch (e) {
+                print('Failed to fetch remote landmark data for ${currentSign.mediaPath}: $e');
+                _errorMessage = 'Failed to load landmark data for sign ${index + 1}.\nError: $e';
+            }
+        }
+
+        if (landmarksToAnimate != null && landmarksToAnimate.isNotEmpty) {
+            _controller.setSignData(
+                [Sign(mediaPath: currentSign.mediaPath, mediaType: currentSign.mediaType, landmarkData: landmarksToAnimate)],
+                fps: _animationFps
+            );
+            _controller.onAnimationComplete = _advanceToNextSignAfterDelay;
+            _controller.startAnimation();
+            setState(() { _isLoading = false; });
+        } else {
+            print('No landmark data available or fetched for sign $index.');
+            _errorMessage = _errorMessage.isNotEmpty ? _errorMessage : 'No landmark data for animation for sign ${index + 1}.';
+            _handleUnplayableSign();
+        }
+    } else { // Fallback for unhandled types or empty paths if logic gets here
+      print('Sign $index (Path: ${currentSign.mediaPath}) is not video and has no processable landmark data.');
+      _errorMessage = 'Sign ${index + 1} has no playable content.';
+      _handleUnplayableSign();
+    }
+  }
+  
+  void _handleUnplayableSign() {
+    if (!mounted) return;
+    setState(() {
+        _isLoading = false; 
+    });
+    print("Unplayable sign encountered (Index: $_currentSignIndex). Error: $_errorMessage. Advancing after delay.");
+    Future.delayed(const Duration(milliseconds: 1500), _advanceToNextSignAfterDelay);
+  }
+
+  void _videoPlayerListener() {
+    if (!mounted || _activeVideoPlayerController == null || !_activeVideoPlayerController!.value.isInitialized) {
+      return;
+    }
+    // It's important to check if the controller is still playing and the video has actually finished.
+    // Sometimes, the listener might be called when the video is paused or at the very end multiple times.
+    if (_activeVideoPlayerController!.value.isPlaying || _activeVideoPlayerController!.value.isBuffering) {
+      return; // Don't advance if still playing or buffering
+    }
+
+    final position = _activeVideoPlayerController!.value.position;
+    final duration = _activeVideoPlayerController!.value.duration;
+
+    // Check if position is at or very near the end, and it's not already seeking.
+    // Adding a small tolerance for floating point inaccuracies.
+    if (duration > Duration.zero && (position >= duration || (duration - position).inMilliseconds < 100)) {
+      print('Video for sign $_currentSignIndex finished. Position: $position, Duration: $duration');
+      _activeVideoPlayerController!.removeListener(_videoPlayerListener); // Remove listener before advancing
+      _advanceToNextSignAfterDelay();
+    }
+  }
+  
+  void _advanceToNextSignAfterDelay() {
+    if (!mounted) return;
+    // Adding a small delay for smoother UX, e.g., to see the last frame or video end.
+    Future.delayed(const Duration(milliseconds: 300), _advanceToNextSign);
+  }
+
+  void _advanceToNextSign() {
+    if (!mounted) return;
+    print('Attempting to advance from sign $_currentSignIndex. Total signs: ${_allSigns.length}');
+    if (_currentSignIndex < _allSigns.length - 1) {
+      final newIndex = _currentSignIndex + 1;
+      print('Advancing to next sign: $newIndex');
+      _playSignAtIndex(newIndex);
+    } else {
+      print('Reached the end of all signs.');
+      setState(() {
+        _errorMessage = "All signs played. You can start again or go back.";
+        _isLoading = false; 
       });
     }
   }
 
+  void _onPressedNext() {
+    if (!mounted) return;
+    print('Next button pressed. Current index: $_currentSignIndex, Total signs: ${_allSigns.length}');
+    if (_currentSignIndex < _allSigns.length - 1 && !_isLoading) { // Prevent action while loading
+      final newIndex = _currentSignIndex + 1;
+      _playSignAtIndex(newIndex);
+    } else {
+      print('Next button: Already at the last sign or loading.');
+    }
+  }
+
+  void _onPressedPrevious() {
+    if (!mounted) return;
+    print('Previous button pressed. Current index: $_currentSignIndex');
+    if (_currentSignIndex > 0 && !_isLoading) { // Prevent action while loading
+      final newIndex = _currentSignIndex - 1;
+      _playSignAtIndex(newIndex);
+    } else {
+      print('Previous button: Already at the first sign or loading.');
+    }
+  }
+  
+  void _onRestartCurrentSign() {
+    if (!mounted || _allSigns.isEmpty || _currentSignIndex >= _allSigns.length || _isLoading) return;
+
+    print("Restarting current sign: $_currentSignIndex");
+    // Re-trigger playing the current sign. _playSignAtIndex handles setup.
+    _playSignAtIndex(_currentSignIndex);
+  }
+
   bool _isLikelyVideoUrl(String url) {
-    final lcUrl = url.toLowerCase();
-    return lcUrl.endsWith('.mp4') || lcUrl.endsWith('.webm') || lcUrl.endsWith('.mov') || lcUrl.endsWith('.avi');
-    // Add more video extensions if needed, or use a more robust check
+    if (url.isEmpty) return false;
+    try {
+      final Uri uri = Uri.parse(url);
+      String path = uri.path;
+      final lcPath = path.toLowerCase();
+      return lcPath.endsWith('.mp4') || 
+             lcPath.endsWith('.webm') || 
+             lcPath.endsWith('.mov') || 
+             lcPath.endsWith('.avi') ||
+             lcPath.endsWith('.mkv') || // Added mkv
+             lcPath.endsWith('.flv');  // Added flv
+    } catch (e) {
+      // If parsing fails, it's unlikely a valid URL for our purposes
+      print("Error parsing URL in _isLikelyVideoUrl: $url - $e");
+      return false;
+    }
   }
 
   // Function to fetch landmark data from backend
@@ -253,11 +408,12 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
      }
   }
 
-
   @override
   void dispose() {
+    _activeVideoPlayerController?.removeListener(_videoPlayerListener);
+    _activeVideoPlayerController?.dispose();
+    _controller.onAnimationComplete = null;
     _controller.dispose();
-    _videoPlayerController?.dispose(); // Dispose video controller
     super.dispose();
   }
 
@@ -271,7 +427,7 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
             children: [
               Image.asset(
                 'assets/images/signosi_logo_hand.png',
-                height: 30, // Adjust height as needed
+                height: 30,
               ),
               const SizedBox(width: 8),
               const Text(
@@ -305,100 +461,87 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
                 textAlign: TextAlign.center,
               ),
             ),
+            if (_allSigns.isNotEmpty && _currentSignIndex < _allSigns.length && !_isLoading)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                child: Text(
+                  'Sign ${(_currentSignIndex + 1).toString()} of ${_allSigns.length.toString()}',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
             Expanded(
               child: _buildMainContent(),
             ),
           ],
         ),
-        bottomNavigationBar: _isLoading || _errorMessage.isNotEmpty
-          ? _buildSimpleBottomBar()
-          : _buildNavigationControls(),
+        bottomNavigationBar: _buildBottomControls(),
       ),
     );
   }
 
-  Widget _buildSimpleBottomBar() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: ElevatedButton(
-        onPressed: () {
-          Navigator.pop(context);
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.deepOrangeAccent,
-          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(30),
-          ),
-        ),
-        child: const Text(
-          'Start again',
-          style: TextStyle(fontSize: 18),
-        ),
-      ),
-    );
-  }
+  Widget _buildBottomControls() {
+    // Simplified: always show controls if not in initial full load. Content handles specific states.
+    if (_isLoading && _allSigns.isEmpty) { 
+        return const SizedBox.shrink(); 
+    }
 
-  Widget _buildNavigationControls() {
-    return Consumer<SignAnimationController>(
-      builder: (context, controller, child) {
-        return Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              if (controller.totalSigns > 1)
-                ElevatedButton(
-                  onPressed: controller.isFirstSign 
-                    ? null 
-                    : () => controller.previousSign(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.grey.shade200,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                  ),
-                  child: const Text('Previous Sign'),
-                ),
-                
-              ElevatedButton(
+    bool isAtEndAndFinished = _currentSignIndex >= _allSigns.length - 1 && 
+                               _errorMessage == "All signs played. You can start again or go back.";
+    
+    if (isAtEndAndFinished || (_allSigns.isEmpty && _errorMessage.isNotEmpty)) {
+         return Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: ElevatedButton(
                 onPressed: () {
-                  Navigator.pop(context);
+                    Navigator.pop(context); 
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepOrangeAccent,
-                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(30),
-                  ),
+                    backgroundColor: Colors.deepOrangeAccent,
+                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                 ),
-                child: const Text(
-                  'Start again',
-                  style: TextStyle(fontSize: 18),
-                ),
-              ),
-              
-              if (controller.totalSigns > 1)
+                child: const Text('Start again', style: TextStyle(fontSize: 18, color: Colors.white)),
+            ),
+        );
+    }
+
+    return Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
                 ElevatedButton(
-                  onPressed: controller.isLastSign 
-                    ? null 
-                    : () => controller.nextSign(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.grey.shade200,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                    onPressed: (_currentSignIndex > 0 && !_isLoading) ? _onPressedPrevious : null,
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey.shade200,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                     ),
-                  ),
-                  child: const Text('Next Sign'),
+                    child: const Text('Previous'),
+                ),
+                ElevatedButton(
+                    onPressed: (_allSigns.isNotEmpty && !_isLoading) ? _onRestartCurrentSign : null,
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orangeAccent,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    ),
+                    child: const Icon(Icons.replay),
+                ),
+                ElevatedButton(
+                    onPressed: (_currentSignIndex < _allSigns.length - 1 && !_isLoading) ? _onPressedNext : null,
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey.shade200,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    ),
+                    child: const Text('Next'),
                 ),
             ],
-          ),
-        );
-      }
+        ),
     );
   }
 
@@ -406,180 +549,88 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_errorMessage.isNotEmpty) {
-      return Center(child: Text(_errorMessage, style: const TextStyle(color: Colors.red)));
+    // Prioritize error message if it's set and significant (not just "all signs played" unless that's the final state)
+    if (_errorMessage.isNotEmpty && 
+        !(_allSigns.isNotEmpty && _currentSignIndex < _allSigns.length) &&
+        _errorMessage != "All signs played. You can start again or go back.") {
+      return Center(child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Text(_errorMessage, style: const TextStyle(color: Colors.red, fontSize: 16), textAlign: TextAlign.center),
+      ));
+    }
+    
+    if (_allSigns.isEmpty) {
+      return Center(child: Text(_errorMessage.isNotEmpty ? _errorMessage : "No signs available for this translation.", 
+                                  style: TextStyle(color: _errorMessage.isNotEmpty ? Colors.red : Colors.grey, fontSize: 16), 
+                                  textAlign: TextAlign.center));
+    }
+    
+    if (_currentSignIndex >= _allSigns.length) { // End of signs reached
+         return Center(child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text(_errorMessage.isNotEmpty ? _errorMessage :"All signs have been played.", 
+                        style: const TextStyle(fontSize: 16), textAlign: TextAlign.center),
+        ));
     }
 
-    // Video Player UI
-    if (_isShowingVideo && _videoPlayerController != null && _initializeVideoPlayerFuture != null) {
+    final Sign currentSign = _allSigns[_currentSignIndex];
+
+    if (_isShowingVideoContent && _activeVideoPlayerController != null && _initializeActiveVideoPlayerFuture != null) {
       return FutureBuilder(
-        future: _initializeVideoPlayerFuture,
+        future: _initializeActiveVideoPlayerFuture,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.done && _videoPlayerController!.value.isInitialized) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  AspectRatio(
-                    aspectRatio: _videoPlayerController!.value.aspectRatio,
-                    child: VideoPlayer(_videoPlayerController!),
-                  ),
-                  const SizedBox(height: 10),
-                  IconButton(
-                    icon: Icon(
-                      _videoPlayerController!.value.isPlaying ? Icons.pause : Icons.play_arrow,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _videoPlayerController!.value.isPlaying
-                            ? _videoPlayerController!.pause()
-                            : _videoPlayerController!.play();
-                      });
-                    },
-                  ),
-                   Text(
-                    'Playing video: ${_controller.currentSign?.mediaPath ?? ''}', // Display current sign's media path
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            );
-          } else if (snapshot.hasError) {
-             return Center(child: Text("Error loading video: ${snapshot.error}", style: const TextStyle(color: Colors.red)));
+          if (snapshot.connectionState == ConnectionState.done) {
+            if (_activeVideoPlayerController!.value.isInitialized) {
+              return Center(
+                child: AspectRatio(
+                  aspectRatio: _activeVideoPlayerController!.value.aspectRatio,
+                  child: VideoPlayer(_activeVideoPlayerController!),
+                ),
+              );
+            } else {
+              // Video init failed, _errorMessage should have been set in _playSignAtIndex
+              return Center(child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Text(_errorMessage.isNotEmpty ? _errorMessage : "Error loading video: ${currentSign.mediaPath}", 
+                            style: const TextStyle(color: Colors.red, fontSize: 16), textAlign: TextAlign.center),
+              ));
+            }
           }
-          return const Center(child: CircularProgressIndicator());
+          return const Center(child: CircularProgressIndicator()); // Still initializing
         },
       );
-    }
-
-    // Landmark Animation UI (Fallback or if _useTestData is true and it's landmark data)
-    // This section is now secondary if video is available and chosen.
-    if (_useTestData && _controller.signs.isNotEmpty && _controller.signs[0].landmarkData != null && _controller.signs[0].landmarkData!.isNotEmpty) {
-       print("Displaying test data with LandmarkPainter");
-      return CustomPaint(
-        painter: LandmarkPainter(
-          landmarkData: _controller.signs[0].landmarkData![0], // Display first frame of first sign
-          numberOfPoseLandmarks: 0, // No pose landmarks in this test data
-          numberOfHandLandmarks: 21,  // 21 hand landmarks
-          isWorldLandmarks: false, // CSV data is likely 2D screen coordinates
-        ),
-        child: Container(),
-      );
-    } else if (!_useTestData && _controller.signs.isNotEmpty && _controller.signs[0].landmarkData != null && _controller.signs[0].landmarkData!.isNotEmpty) {
-      return CustomPaint(
-        painter: LandmarkPainter(
-          landmarkData: _controller.currentFrameLandmarks,
-          numberOfPoseLandmarks: 0, // Assuming no pose landmarks if primarily for sign language hands
-          numberOfHandLandmarks: 21, // Assuming 21 hand landmarks per hand
-          isWorldLandmarks: false, // Assuming 2D image landmarks
-        ),
-        child: Container(),
-      );
-    }
-
-    // Consumer for Landmark Animation (if not showing video and landmarks are available)
-    return Consumer<SignAnimationController>(
-      builder: (context, controller, child) {
-        final currentSign = controller.currentSign;
-
-        if (currentSign == null) {
-          return const Center(
-            child: Text('No signs available for this text.'),
-          );
-        }
-
-        // Check if landmark data is available FOR THE CURRENT SIGN
-        // This is the "commented out" part - only shown if video is not the primary content for this screen.
-        if (currentSign.landmarkData != null && currentSign.landmarkData!.isNotEmpty) {
-          // Use LandmarkPainter to render animation
-          return Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Pass landmark data to a widget that uses LandmarkPainter
-                // This assumes LandmarkPainter can be used directly or via a wrapper widget
-                // that takes landmark data and animates it.
-                // If SignAnimationController handles the animation state and provides
-                // the current frame's landmarks, we might need a different approach.
-                // For now, assuming LandmarkPainter needs the full data and controller
-                // manages the animation progress.
-                Expanded(
-                   child: CustomPaint(
-                     painter: LandmarkPainter(
-                       landmarkData: controller.currentFrameLandmarks, // Use the getter
-                       numberOfPoseLandmarks: 0, // Assuming no pose landmarks if primarily for sign language hands
-                       numberOfHandLandmarks: 21, // Assuming 21 hand landmarks per hand
-                       isWorldLandmarks: false, // Assuming 2D image landmarks
-                     ),
-                     child: Container(), // Empty container as child
-                   ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Sign ${controller.currentSignIndex + 1} of ${controller.totalSigns}',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Animating from landmark data',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                 const SizedBox(height: 16),
-                 ElevatedButton.icon(
-                   onPressed: () {
-                     controller.restartCurrentSign();
-                   },
-                   icon: const Icon(Icons.refresh),
-                   label: const Text('Play Again'),
-                   style: ElevatedButton.styleFrom(
-                     backgroundColor: Colors.orangeAccent,
-                     foregroundColor: Colors.white,
-                   ),
-                 ),
-              ],
-            ),
-          );
-        } else {
-          // If no landmark data for the current sign, display media path or a placeholder
-          // This might also be hit if the sign was supposed to be a video but failed to load earlier
-          // or if it's a non-video, non-landmark sign.
-          return Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.videocam_off, size: 64, color: Colors.grey), // Changed icon
-                const SizedBox(height: 16),
-                Text(
-                  _isLikelyVideoUrl(currentSign.mediaPath)
-                    ? 'Video content not available or failed to load.'
-                    : 'No landmark data available for animation.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Media path: ${currentSign.mediaPath}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    // Maybe retry fetching or indicate the issue
-                  },
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Retry'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orangeAccent,
-                    foregroundColor: Colors.white,
+    } else if (!_isShowingVideoContent && 
+               _controller.signs.isNotEmpty && // Check if controller has data for current landmark sign
+               _controller.signs.first.landmarkData != null && 
+               _controller.signs.first.landmarkData!.isNotEmpty) {
+      return Consumer<SignAnimationController>(
+          builder: (context, animController, child) {
+              if (animController.currentFrameLandmarks.isEmpty && animController.isAnimating) {
+                  // Handles brief moment before first frame is ready or if animation is stuck
+                  return const Center(child: CircularProgressIndicator());
+              }
+              return CustomPaint(
+                  painter: LandmarkPainter(
+                  landmarkData: animController.currentFrameLandmarks,
+                  numberOfPoseLandmarks: 0,
+                  numberOfHandLandmarks: 21, // Assuming 21 hand landmarks for this data
+                  isWorldLandmarks: false, 
                   ),
-                ),
-              ],
-            ),
-          );
-        }
-      },
-    );
+                  child: Container(),
+              );
+          }
+      );
+    }
+    
+    // Fallback for the current sign if it's unplayable or state is inconsistent
+    return Center(child: Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Text(
+        _errorMessage.isNotEmpty ? _errorMessage : 'Preparing content for sign ${currentSign.mediaPath}...',
+        style: TextStyle(color: _errorMessage.isNotEmpty ? Colors.red : Colors.grey, fontSize: 16),
+        textAlign: TextAlign.center,
+      ),
+    ));
   }
 
   // Removed _checkFileExists and _buildVideoPlayer as they are no longer used
