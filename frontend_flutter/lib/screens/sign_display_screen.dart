@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'profile_screen.dart';
 import 'speech_screen.dart';
 import '../widgets/landmark_painter.dart'; // Import the custom painter
+import '../widgets/app_navigation_bar.dart';
 import 'package:http/http.dart' as http; // Import http package
 import 'dart:convert'; // Import for JSON decoding
 import 'dart:async'; // Import for Timer
@@ -434,35 +435,7 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
     return ChangeNotifierProvider.value(
       value: _controller,
       child: Scaffold(
-        appBar: AppBar(
-          title: Row(
-            children: [
-              Image.asset(
-                'assets/images/signosi_logo_hand.png',
-                height: 30,
-              ),
-              const SizedBox(width: 8),
-              const Text(
-                'Signosi',
-                style: TextStyle(color: Colors.deepOrange),
-              ),
-            ],
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.person),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const ProfileScreen()),
-                );
-              },
-            ),
-          ],
-          backgroundColor: Colors.white,
-          elevation: 0,
-          iconTheme: const IconThemeData(color: Colors.black),
-        ),
+        appBar: const AppNavigationBar(activeScreen: 'sign'),
         body: Column(
           children: [
             Padding(

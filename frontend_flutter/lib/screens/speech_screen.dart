@@ -4,6 +4,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../widgets/wave_animation.dart';
+import '../widgets/app_navigation_bar.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
@@ -203,41 +204,69 @@ class _SpeechScreenState extends State<SpeechScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Speech to Text'),
-        centerTitle: true,
-        elevation: 0,
-        actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.language),
-            tooltip: 'Select Language',
-            onSelected: (String langCode) {
-              setState(() {
-                _selectedLanguage = langCode;
-              });
-            },
-            itemBuilder: (BuildContext context) {
-              return _availableLanguages.entries.map((entry) {
-                return PopupMenuItem<String>(
-                  value: entry.key,
-                  child: Row(
-                    children: [
-                      Icon(
-                        _selectedLanguage == entry.key ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-                        color: _selectedLanguage == entry.key ? Theme.of(context).colorScheme.primary : null,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(entry.value),
-                    ],
-                  ),
-                );
-              }).toList();
-            },
-          ),
-        ],
-      ),
+      appBar: const AppNavigationBar(activeScreen: 'speech'),
       body: Stack(
         children: [
+          // Language selector
+          Positioned(
+            top: 8,
+            right: 8,
+            child: PopupMenuButton<String>(
+              icon: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.language,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      _availableLanguages[_selectedLanguage] ?? 'Language',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.arrow_drop_down,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ],
+                ),
+              ),
+              tooltip: 'Select Language',
+              onSelected: (String langCode) {
+                setState(() {
+                  _selectedLanguage = langCode;
+                });
+              },
+              itemBuilder: (BuildContext context) {
+                return _availableLanguages.entries.map((entry) {
+                  return PopupMenuItem<String>(
+                    value: entry.key,
+                    child: Row(
+                      children: [
+                        Icon(
+                          _selectedLanguage == entry.key ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                          color: _selectedLanguage == entry.key ? Theme.of(context).colorScheme.primary : null,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(entry.value),
+                      ],
+                    ),
+                  );
+                }).toList();
+              },
+            ),
+          ),
+
           // Transcribed text area
           Padding(
             padding: const EdgeInsets.all(24.0),
@@ -245,11 +274,6 @@ class _SpeechScreenState extends State<SpeechScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
-                    'Selected Language: ${_availableLanguages[_selectedLanguage]}',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 24),
                   Text(
                     _transcribedText.isEmpty 
                       ? _speechEnabled 

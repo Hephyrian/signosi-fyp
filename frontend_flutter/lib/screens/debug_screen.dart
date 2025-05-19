@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'sign_display_screen.dart';
 import 'speech_screen.dart';
 import '../services/translation_service.dart';
+import '../widgets/app_navigation_bar.dart';
 import 'dart:convert';
 
 class DebugScreen extends StatefulWidget {
@@ -90,9 +91,7 @@ class _DebugScreenState extends State<DebugScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Debug Tools'),
-      ),
+      appBar: const AppNavigationBar(activeScreen: 'debug'),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
