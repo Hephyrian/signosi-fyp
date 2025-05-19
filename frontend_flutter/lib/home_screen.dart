@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'screens/speech_screen.dart';
 import 'screens/debug_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/whiteboard_screen.dart';
 import 'dart:async';
 import 'widgets/app_navigation_bar.dart';
+import 'package:provider/provider.dart';
+import 'services/theme_provider.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -58,9 +61,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    
     return Scaffold(
       extendBodyBehindAppBar: true,
-      appBar: const AppNavigationBar(activeScreen: 'home'),
+      appBar: AppNavigationBar(
+        activeScreen: 'home', 
+        isDarkMode: themeProvider.isDarkMode,
+        onToggleTheme: () => themeProvider.toggleTheme(),
+      ),
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -107,34 +116,62 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: MouseRegion(
-        onEnter: (_) => _fabAnimationController.forward(),
-        onExit: (_) => _fabAnimationController.reverse(),
-        child: Container(
-          height: 64,
-          width: 64,
-          margin: const EdgeInsets.only(bottom: 16),
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 1.0, end: 1.1).animate(
-              CurvedAnimation(
-                parent: _fabAnimationController,
-                curve: Curves.easeInOut,
+      floatingActionButton: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          MouseRegion(
+            onEnter: (_) => _fabAnimationController.forward(),
+            onExit: (_) => _fabAnimationController.reverse(),
+            child: Container(
+              height: 64,
+              width: 64,
+              margin: const EdgeInsets.only(bottom: 16, right: 16),
+              child: FloatingActionButton(
+                heroTag: "whiteboard",
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const WhiteboardScreen()),
+                  );
+                },
+                backgroundColor: Theme.of(context).colorScheme.secondary,
+                elevation: 4,
+                shape: const CircleBorder(),
+                child: const Icon(Icons.edit, color: Colors.white, size: 28),
               ),
             ),
-            child: FloatingActionButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const SpeechScreen()),
-                );
-              },
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              elevation: 6,
-              shape: const CircleBorder(),
-              child: const Icon(Icons.mic, color: Colors.white, size: 32),
+          ),
+          MouseRegion(
+            onEnter: (_) => _fabAnimationController.forward(),
+            onExit: (_) => _fabAnimationController.reverse(),
+            child: Container(
+              height: 64,
+              width: 64,
+              margin: const EdgeInsets.only(bottom: 16),
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 1.0, end: 1.1).animate(
+                  CurvedAnimation(
+                    parent: _fabAnimationController,
+                    curve: Curves.easeInOut,
+                  ),
+                ),
+                child: FloatingActionButton(
+                  heroTag: "speech",
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SpeechScreen()),
+                    );
+                  },
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  elevation: 6,
+                  shape: const CircleBorder(),
+                  child: const Icon(Icons.mic, color: Colors.white, size: 32),
+                ),
+              ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }

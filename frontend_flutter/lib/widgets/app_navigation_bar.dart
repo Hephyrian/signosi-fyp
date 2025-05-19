@@ -4,11 +4,15 @@ import '../screens/debug_screen.dart';
 class AppNavigationBar extends StatefulWidget implements PreferredSizeWidget {
   final String activeScreen;
   final Function(int)? onTapLogo;
+  final bool isDarkMode;
+  final VoidCallback? onToggleTheme;
 
   const AppNavigationBar({
     super.key, 
     required this.activeScreen,
     this.onTapLogo,
+    this.isDarkMode = false,
+    this.onToggleTheme,
   });
 
   @override
@@ -101,6 +105,13 @@ class _AppNavigationBarState extends State<AppNavigationBar> {
                         Navigator.pushNamed(context, '/profile');
                       }
                     },
+                  ),
+                  const SizedBox(width: 8),
+                  _buildNavAction(
+                    icon: widget.isDarkMode ? Icons.light_mode : Icons.dark_mode,
+                    isActive: false,
+                    tooltip: widget.isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode',
+                    onPressed: widget.onToggleTheme ?? () {},
                   ),
                 ],
               ),

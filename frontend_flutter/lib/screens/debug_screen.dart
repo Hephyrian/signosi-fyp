@@ -4,6 +4,8 @@ import 'speech_screen.dart';
 import '../services/translation_service.dart';
 import '../widgets/app_navigation_bar.dart';
 import 'dart:convert';
+import 'package:provider/provider.dart';
+import '../services/theme_provider.dart';
 
 class DebugScreen extends StatefulWidget {
   const DebugScreen({Key? key}) : super(key: key);
@@ -90,8 +92,14 @@ class _DebugScreenState extends State<DebugScreen> {
   
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    
     return Scaffold(
-      appBar: const AppNavigationBar(activeScreen: 'debug'),
+      appBar: AppNavigationBar(
+        activeScreen: 'debug',
+        isDarkMode: themeProvider.isDarkMode,
+        onToggleTheme: () => themeProvider.toggleTheme(),
+      ),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(16.0),

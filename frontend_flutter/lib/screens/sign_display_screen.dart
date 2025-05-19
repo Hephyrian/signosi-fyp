@@ -13,6 +13,7 @@ import 'package:video_player/video_player.dart'; // Added for video playback
 import '../models/translation_response.dart';
 import '../services/translation_service.dart';
 import '../controllers/sign_animation_controller.dart';
+import '../services/theme_provider.dart';
 
 class SignDisplayScreen extends StatefulWidget {
   final String textToTranslate;
@@ -432,10 +433,16 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    
     return ChangeNotifierProvider.value(
       value: _controller,
       child: Scaffold(
-        appBar: const AppNavigationBar(activeScreen: 'sign'),
+        appBar: AppNavigationBar(
+          activeScreen: 'sign',
+          isDarkMode: themeProvider.isDarkMode,
+          onToggleTheme: () => themeProvider.toggleTheme(),
+        ),
         body: Column(
           children: [
             Padding(

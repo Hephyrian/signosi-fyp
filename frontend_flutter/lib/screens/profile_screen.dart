@@ -1,23 +1,30 @@
 import 'package:flutter/material.dart';
 import '../widgets/app_navigation_bar.dart';
+import 'package:provider/provider.dart';
+import '../services/theme_provider.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // Sample hard-coded user data
-    final userData = {
-      'name': 'Hemaka Mario',
-      'email': 'hemakamario2004@gmail.com',
-      'phone': '+94 (72) 1356486',
-      'language': 'English, Sign Language',
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    
+    // Sample user data
+    final Map<String, String> userData = {
+      'email': 'example@email.com',
+      'phone': '+94 71 123 4567',
+      'language': 'English, Sinhala',
       'preferredMode': 'Sign to Text',
       'accountCreated': 'December 12, 2024',
     };
 
     return Scaffold(
-      appBar: const AppNavigationBar(activeScreen: 'profile'),
+      appBar: AppNavigationBar(
+        activeScreen: 'profile',
+        isDarkMode: themeProvider.isDarkMode,
+        onToggleTheme: () => themeProvider.toggleTheme(),
+      ),
       body: SingleChildScrollView(
         child: Column(
           children: [

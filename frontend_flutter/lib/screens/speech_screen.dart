@@ -10,6 +10,8 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'sign_display_screen.dart';
+import 'package:provider/provider.dart';
+import '../services/theme_provider.dart';
 
 class SpeechScreen extends StatefulWidget {
   const SpeechScreen({super.key});
@@ -203,8 +205,14 @@ class _SpeechScreenState extends State<SpeechScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    
     return Scaffold(
-      appBar: const AppNavigationBar(activeScreen: 'speech'),
+      appBar: AppNavigationBar(
+        activeScreen: 'speech',
+        isDarkMode: themeProvider.isDarkMode,
+        onToggleTheme: () => themeProvider.toggleTheme(),
+      ),
       body: Stack(
         children: [
           // Language selector
