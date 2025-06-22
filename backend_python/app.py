@@ -1,3 +1,10 @@
+import sys
+import io
+
+# Reconfigure stdout and stderr to use UTF-8 for Unicode output in Windows console
+sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8', errors='replace')
+
 from flask import Flask, request, jsonify, send_from_directory
 import os
 import sys
