@@ -494,12 +494,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           splashColor: phrase.contentColor.withOpacity(0.1),
           highlightColor: phrase.contentColor.withOpacity(0.05),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.5),
                     shape: BoxShape.circle,
@@ -514,20 +515,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   child: Icon(
                     phrase.icon,
                     color: phrase.contentColor,
-                    size: 28,
+                    size: 24,
                   ),
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  phrase.text,
-                  style: TextStyle(
-                    color: phrase.contentColor,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
+                const SizedBox(height: 8),
+                Flexible(
+                  child: Text(
+                    phrase.text,
+                    style: TextStyle(
+                      color: phrase.contentColor,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                    textAlign: TextAlign.center,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
-                  textAlign: TextAlign.center,
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 2,
                 ),
               ],
             ),

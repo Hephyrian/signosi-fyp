@@ -238,16 +238,13 @@ class LandmarkPainter extends CustomPainter {
   void _drawStylizedHand(Canvas canvas, List<Offset> handLandmarks, Paint palmPaint, Paint fingerPaint, Size canvasSize) {
     if (handLandmarks.length < 21) return; // Expect 21 landmarks
 
-    // --- Parameters for styling ---
-    // These can be adjusted for desired appearance
-    final double fingerBaseWidth = canvasSize.width * 0.04; // Adjust based on overall canvas size
+   
+    final double fingerBaseWidth = canvasSize.width * 0.04; 
     final double fingertipWidth = canvasSize.width * 0.03;
     final double palmOutlineStrokeWidth = canvasSize.width * 0.01;
 
 
-    // --- 1. Draw Palm ---
-    // We'll use a Path for the palm outline for more flexibility.
-    // Connecting landmarks: Wrist (0), Thumb base (1), Index base (5), Middle base (9), Ring base (13), Pinky base (17)
+    
     final palmPath = Path();
     final List<int> palmIndices = LandmarkConnections.palmOutlineIndices; // [0, 1, 5, 9, 13, 17];
 
@@ -256,9 +253,7 @@ class LandmarkPainter extends CustomPainter {
         for (int i = 1; i < palmIndices.length; i++) {
             palmPath.lineTo(handLandmarks[palmIndices[i]].dx, handLandmarks[palmIndices[i]].dy);
         }
-        // Optional: draw a line from pinky base back to wrist to close it visually if needed,
-        // or from pinky base (17) to index finger base (5) to form top of palm.
-        // For a more filled look, connecting 17 to 5 might be better. Let's try that.
+        
         palmPath.lineTo(handLandmarks[5].dx, handLandmarks[5].dy); // Connect pinky base to index base for a fuller palm top
         palmPath.close(); // Close the path (connects last point to first)
         

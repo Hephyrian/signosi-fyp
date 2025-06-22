@@ -1,11 +1,13 @@
 class Sign {
-  final String mediaPath;
-  final String? mediaType;
+  final String label; // The identifier for the sign, e.g., "Ayubowan"
+  final String? videoPath;
+  final String? animationPath;
   final List<List<double>>? landmarkData; // Optional landmark data for animation
 
   Sign({
-    required this.mediaPath,
-    this.mediaType,
+    required this.label,
+    this.videoPath,
+    this.animationPath,
     this.landmarkData,
   });
 
@@ -20,8 +22,9 @@ class Sign {
     }
 
     return Sign(
-      mediaPath: json['media_path'] as String,
-      mediaType: json['media_type'] as String?,
+      label: json['label'] as String,
+      videoPath: json['video_path'] as String?,
+      animationPath: json['animation_path'] as String?,
       landmarkData: landmarks,
     );
   }
