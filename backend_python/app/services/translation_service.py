@@ -7,6 +7,10 @@ import boto3 # Added for S3 integration
 from botocore.exceptions import NoCredentialsError, ClientError # Added for S3 error handling
 import random
 
+# Import letter mapping service
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+from letter_mapping_service import get_letter_mapping_service
+
 # Define paths first
 PACKAGE_PARENT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')) # .../signosi-fyp/backend_python
 PROJECT_ROOT_DIR = os.path.abspath(os.path.join(PACKAGE_PARENT_DIR, '..')) # .../signosi-fyp
@@ -124,6 +128,25 @@ class CustomSinhalaConcatenativeSynthesis(slt_models.ConcatenativeSynthesis if s
             logging.warning(f"Sign '{label}' not found in custom lk-dictionary-mapping.json.")
 
         return resource_info
+    
+    def _get_letter_fallback(self, word: str) -> list:
+        """
+        Get letter-based sign sequence for words not in dictionary
+        
+        Args:
+            word: Word to break down into letters
+            
+        Returns:
+            List of letter sign dictionaries
+        """
+        try:
+            letter_service = get_letter_mapping_service()
+            letter_signs = letter_service.get_word_as_letter_sequence(word)
+            logging.info(f"Generated letter fallback for word '{word}': {len(letter_signs)} letters")
+            return letter_signs
+        except Exception as e:
+            logging.error(f"Failed to generate letter fallback for word '{word}': {e}")
+            return []
 
     def _map_labels_to_sign(self, video_labels: list[str], person=None, camera=None, sep="_") -> list[dict]:
         """
@@ -149,6 +172,7 @@ if slt_models:
 def translate_text_to_slsl(text, source_language_code="si"):
     """
     Translates text to Sinhala Sign Language, returning all available media formats for each sign.
+    Uses letter-based fallback for words not found in the dictionary.
     """
     if not models:
         return {"error": "Translation service not available."}
@@ -160,7 +184,31 @@ def translate_text_to_slsl(text, source_language_code="si"):
     model = models[model_key]
     try:
         signs_data = model(text)
-        return {"signs": signs_data}
+        
+        # Check for unknown words and apply letter fallback
+        enhanced_signs_data = []
+        for sign_info in signs_data:
+            if isinstance(sign_info, dict):
+                label = sign_info.get("label", "")
+                
+                # If sign not found in dictionary, try letter fallback
+                if (sign_info.get("video_path") is None and 
+                    sign_info.get("animation_path") is None and 
+                    sign_info.get("landmark_data") is None and
+                    label and not label.startswith("letter_")):
+                    
+                    logging.info(f"Applying letter fallback for unknown word: {label}")
+                    letter_signs = model._get_letter_fallback(label)
+                    if letter_signs:
+                        enhanced_signs_data.extend(letter_signs)
+                    else:
+                        enhanced_signs_data.append(sign_info)  # Keep original if fallback fails
+                else:
+                    enhanced_signs_data.append(sign_info)
+            else:
+                enhanced_signs_data.append(sign_info)
+        
+        return {"signs": enhanced_signs_data}
     except Exception as e:
         tb_str = traceback.format_exc()
         logging.error(f"An error occurred during translation for text '{text}': {e}\n{tb_str}")
