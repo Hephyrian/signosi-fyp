@@ -40,10 +40,10 @@ class SignAnimationController extends ChangeNotifier {
     // Check if the sign has a valid media path and the file exists
     // This logic might need adjustment if mediaPath is now a URL
     // For now, keeping the original logic but it might be obsolete
-    if (sign.mediaPath.isNotEmpty) {
+    if (sign.animationPath != null && sign.animationPath!.isNotEmpty) {
        // Assuming mediaPath is a local file path for video check
        // If we are only using landmark data, this check might be removed
-      // final file = File(sign.mediaPath);
+      // final file = File(sign.animationPath);
       // return file.existsSync();
       return false; // Assuming we are not using local video files anymore
     }
@@ -61,7 +61,18 @@ class SignAnimationController extends ChangeNotifier {
     // Filter for signs that have landmark data, and take the first one if multiple are passed.
     _signs = newSigns.where((s) => s.landmarkData != null && s.landmarkData!.isNotEmpty).toList();
     
-    _fps = fps;
+    final timestamp = DateTime.now().toIso8601String();
+    print('🎭 [$timestamp] SignAnimationController: Setting sign data');
+    print('📊 Input signs: ${newSigns.length}, Filtered signs with landmark data: ${_signs.length}');
+    
+    if (_signs.isNotEmpty) {
+      final sign = _signs[0];
+      print('🎬 Processing sign: "${sign.label}" with ${sign.landmarkData?.length ?? 0} frames');
+    }
+    
+    // Clamp FPS to reasonable range (5-30) to prevent extreme values
+    _fps = fps.clamp(5, 30);
+    print('🎯 Animation controller received FPS: $fps, clamped and set _fps to: $_fps');
     _currentSignIndex = 0; // Always operates on the first (or only) sign in its internal list
     _currentFrameIndex = 0;
     _currentFrameLandmarks = [];
@@ -73,10 +84,13 @@ class SignAnimationController extends ChangeNotifier {
   
   // Start animation
   void startAnimation() {
+    final timestamp = DateTime.now().toIso8601String();
+    print('▶️ [$timestamp] SignAnimationController: Starting animation');
+    
     stopAnimation(); // Ensure any previous timer is cancelled
 
     if (_signs.isEmpty) {
-      print("SignAnimationController: No signs with landmark data to animate.");
+      print("⚠️ SignAnimationController: No signs with landmark data to animate.");
       _currentFrameLandmarks = [];
       onAnimationComplete?.call(); 
       notifyListeners();
@@ -88,12 +102,14 @@ class SignAnimationController extends ChangeNotifier {
     final currentSignFrames = signToAnimate.landmarkData;
 
     if (currentSignFrames == null || currentSignFrames.isEmpty) {
-       print("SignAnimationController: Landmark data is null or empty for the sign.");
+       print("⚠️ SignAnimationController: Landmark data is null or empty for the sign.");
        _currentFrameLandmarks = [];
        onAnimationComplete?.call(); 
        notifyListeners();
        return;
     }
+    
+    print('🎬 Animating sign "${signToAnimate.label}" with ${currentSignFrames.length} frames at ${_fps}fps');
     
     _currentFrameIndex = 0;
     _updateLandmarksForCurrentFrame();
@@ -103,6 +119,8 @@ class SignAnimationController extends ChangeNotifier {
         _currentFrameIndex++;
         _updateLandmarksForCurrentFrame();
       } else {
+        final completionTimestamp = DateTime.now().toIso8601String();
+        print('🏁 [$completionTimestamp] SignAnimationController: Animation completed for "${signToAnimate.label}"');
         stopAnimation(); // Stop timer as current sign animation is complete
         onAnimationComplete?.call(); // Inform that the current sign's animation is done
       }

@@ -113,14 +113,38 @@ class LandmarkPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..strokeWidth = 4.0;
 
-    final handPaint = Paint()
-      ..color = const Color(0xFFFFD54F) // Yellowish-Orange, similar to image
+    // More realistic skin tones
+    final palmPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          const Color(0xFFFFDBB5), // Light skin tone center
+          const Color(0xFFE8B894), // Darker skin tone edges
+        ],
+        radius: 0.8,
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
       ..style = PaintingStyle.fill;
 
     final fingerPaint = Paint()
-      ..color = const Color(0xFFFFB74D) // Slightly darker/more orange for fingers
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          const Color(0xFFE8B894), // Darker at base
+          const Color(0xFFFFDBB5), // Lighter at tips
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
       ..strokeCap = StrokeCap.round
-      ..strokeWidth = 20.0; // Will be adjusted dynamically or be fixed
+      ..strokeWidth = 20.0;
+
+    // Shadow paint for depth
+    final shadowPaint = Paint()
+      ..color = const Color(0x40000000) // Semi-transparent black
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0);
+
+    // Nail paint for fingertips
+    final nailPaint = Paint()
+      ..color = const Color(0xFFF5F5F5) // Light nail color
+      ..style = PaintingStyle.fill;
 
 
     const int featuresPerLandmark = 5; // x, y, z, visibility, presence
@@ -217,7 +241,7 @@ class LandmarkPainter extends CustomPainter {
           );
 
           if (drawStylizedHands) {
-            _drawStylizedHand(canvas, handLandmarkPoints, handPaint, fingerPaint, size);
+            _drawRealisticHand(canvas, handLandmarkPoints, palmPaint, fingerPaint, shadowPaint, nailPaint, size);
           } else {
             // Draw traditional hand landmarks and connections if not stylized
             final traditionalHandConnections = LandmarkConnections.handConnections;
@@ -235,107 +259,233 @@ class LandmarkPainter extends CustomPainter {
     }
   }
 
-  void _drawStylizedHand(Canvas canvas, List<Offset> handLandmarks, Paint palmPaint, Paint fingerPaint, Size canvasSize) {
-    if (handLandmarks.length < 21) return; // Expect 21 landmarks
+  void _drawRealisticHand(Canvas canvas, List<Offset> handLandmarks, Paint palmPaint, Paint fingerPaint, Paint shadowPaint, Paint nailPaint, Size canvasSize) {
+    if (handLandmarks.length < 21) return;
 
-   
-    final double fingerBaseWidth = canvasSize.width * 0.04; 
-    final double fingertipWidth = canvasSize.width * 0.03;
-    final double palmOutlineStrokeWidth = canvasSize.width * 0.01;
+    // Calculate dynamic sizing based on hand scale
+    final double avgDistance = _calculateAverageDistance(handLandmarks);
+    final double baseFingerWidth = avgDistance * 0.4;
+    final double tipFingerWidth = avgDistance * 0.25;
+    final double nailSize = avgDistance * 0.15;
 
+    // --- 1. Draw Shadows First (for depth) ---
+    _drawHandShadows(canvas, handLandmarks, shadowPaint, baseFingerWidth);
 
+    // --- 2. Draw Realistic Palm ---
+    _drawRealisticPalm(canvas, handLandmarks, palmPaint);
+
+    // --- 3. Draw Realistic Fingers with Tapering ---
+    _drawRealisticFingers(canvas, handLandmarks, fingerPaint, baseFingerWidth, tipFingerWidth);
+
+    // --- 4. Draw Fingernails ---
+    _drawFingernails(canvas, handLandmarks, nailPaint, nailSize);
+
+    // --- 5. Add Knuckle Details ---
+    _drawKnuckleDetails(canvas, handLandmarks, shadowPaint, avgDistance);
+  }
+
+  double _calculateAverageDistance(List<Offset> landmarks) {
+    if (landmarks.length < 21) return 20.0;
     
-    final palmPath = Path();
-    final List<int> palmIndices = LandmarkConnections.palmOutlineIndices; // [0, 1, 5, 9, 13, 17];
-
-    if (palmIndices.every((index) => index < handLandmarks.length)) {
-        palmPath.moveTo(handLandmarks[palmIndices[0]].dx, handLandmarks[palmIndices[0]].dy);
-        for (int i = 1; i < palmIndices.length; i++) {
-            palmPath.lineTo(handLandmarks[palmIndices[i]].dx, handLandmarks[palmIndices[i]].dy);
-        }
-        
-        palmPath.lineTo(handLandmarks[5].dx, handLandmarks[5].dy); // Connect pinky base to index base for a fuller palm top
-        palmPath.close(); // Close the path (connects last point to first)
-        
-        // Create a slightly inset path for the "palm" color to avoid overlap with fingers
-        // Or, draw fingers first and then palm, or use different layering.
-        // For now, simple fill.
-        canvas.drawPath(palmPath, palmPaint);
-
-        // Draw circles at palm joints for a softer look (optional)
-        // for (int index in palmIndices) {
-        //     canvas.drawCircle(handLandmarks[index], fingerBaseWidth * 0.5, palmPaint);
-        // }
-    }
-
-
-    // --- 2. Draw Fingers ---
-    // Each finger is a series of connected segments.
-    // We'll draw each segment as a thick line with rounded caps.
-    // Connections:
-    // Thumb: 0-1, 1-2, 2-3, 3-4
-    // Index: 0-5, 5-6, 6-7, 7-8
-    // Middle:0-9, 9-10, 10-11, 11-12
-    // Ring:  0-13, 13-14, 14-15, 15-16
-    // Pinky: 0-17, 17-18, 18-19, 19-20
-
-    // Use the defined finger segment groups
-    final List<List<List<int>>> fingerSegments = LandmarkConnections.fingerSegmentGroups;
-
-    // Adjust finger paint stroke width based on segment (e.g., thicker at base)
-    // For simplicity, start with a fixed width. Can use distance between points too.
-    // Let's calculate a base stroke width dynamically
-    double avgProximalSegmentLength = 0;
+    double totalDistance = 0;
     int count = 0;
-    if (handLandmarks[0] != null && handLandmarks[5] != null && handLandmarks[9] != null && handLandmarks[13] != null && handLandmarks[17] != null &&
-        handLandmarks[1] != null) {
-        avgProximalSegmentLength += (handLandmarks[0] - handLandmarks[1]).distance; // Wrist to Thumb base
-        avgProximalSegmentLength += (handLandmarks[0] - handLandmarks[5]).distance;
-        avgProximalSegmentLength += (handLandmarks[0] - handLandmarks[9]).distance;
-        avgProximalSegmentLength += (handLandmarks[0] - handLandmarks[13]).distance;
-        avgProximalSegmentLength += (handLandmarks[0] - handLandmarks[17]).distance;
-        count = 5;
-    }
-    if (count > 0) {
-       fingerPaint.strokeWidth = (avgProximalSegmentLength / count) * 0.5; // e.g. 50% of avg proximal segment length
-       fingerPaint.strokeWidth = fingerPaint.strokeWidth.clamp(canvasSize.width * 0.02, canvasSize.width * 0.08); // Clamp to reasonable min/max
-    } else {
-       fingerPaint.strokeWidth = canvasSize.width * 0.04; // Fallback
-    }
-
-
-    for (List<List<int>> finger in fingerSegments) {
-      for (List<int> segment in finger) {
-        if (segment[0] < handLandmarks.length && segment[1] < handLandmarks.length) {
-          Offset p1 = handLandmarks[segment[0]];
-          Offset p2 = handLandmarks[segment[1]];
-          
-          // Make fingers slightly thicker towards the base?
-          // For now, uniform thickness.
-          canvas.drawLine(p1, p2, fingerPaint);
-        }
+    
+    // Calculate distances between key landmarks for scaling
+    final List<List<int>> keyDistances = [
+      [0, 5], [0, 9], [0, 13], [0, 17], // Wrist to finger bases
+      [5, 6], [9, 10], [13, 14], [17, 18], // First segments
+    ];
+    
+    for (var pair in keyDistances) {
+      if (pair[0] < landmarks.length && pair[1] < landmarks.length) {
+        totalDistance += (landmarks[pair[0]] - landmarks[pair[1]]).distance;
+        count++;
       }
     }
     
-    // Draw circles at each landmark point for the fingers to make joints look smoother and rounder
-    // This should be done AFTER lines so circles are on top and create the rounded joint effect
-    for (List<List<int>> finger in fingerSegments) {
-        for(List<int> segment in finger) {
-            // Draw circle at the start of the segment (p1)
-            if (segment[0] < handLandmarks.length) {
-                 canvas.drawCircle(handLandmarks[segment[0]], fingerPaint.strokeWidth / 2, fingerPaint);
-            }
-            // Draw circle at the end of the segment (p2), ensures fingertips are round
-            if (segment[1] < handLandmarks.length) {
-                 canvas.drawCircle(handLandmarks[segment[1]], fingerPaint.strokeWidth / 2, fingerPaint);
-            }
-        }
-    }
-    // Ensure wrist is also drawn with a circle if it's part of the "finger" segments (like for thumb base)
-    if (0 < handLandmarks.length) {
-        canvas.drawCircle(handLandmarks[0], fingerPaint.strokeWidth / 2, fingerPaint);
-    }
+    return count > 0 ? totalDistance / count : 20.0;
+  }
 
+  void _drawHandShadows(Canvas canvas, List<Offset> landmarks, Paint shadowPaint, double baseWidth) {
+    // Draw subtle shadows offset slightly to give depth
+    final shadowOffset = Offset(2, 3);
+    
+    // Shadow for palm
+    _drawPalmShape(canvas, landmarks, shadowPaint, shadowOffset);
+    
+    // Shadows for fingers
+    final fingerGroups = [
+      [1, 2, 3, 4], // Thumb
+      [5, 6, 7, 8], // Index
+      [9, 10, 11, 12], // Middle
+      [13, 14, 15, 16], // Ring
+      [17, 18, 19, 20], // Pinky
+    ];
+    
+    for (var finger in fingerGroups) {
+      for (int i = 0; i < finger.length - 1; i++) {
+        if (finger[i] < landmarks.length && finger[i + 1] < landmarks.length) {
+          final p1 = landmarks[finger[i]] + shadowOffset;
+          final p2 = landmarks[finger[i + 1]] + shadowOffset;
+          
+          final shadowFingerPaint = Paint()
+            ..color = shadowPaint.color
+            ..strokeCap = StrokeCap.round
+            ..strokeWidth = baseWidth * 0.8;
+          
+          canvas.drawLine(p1, p2, shadowFingerPaint);
+        }
+      }
+    }
+  }
+
+  void _drawRealisticPalm(Canvas canvas, List<Offset> landmarks, Paint palmPaint) {
+    _drawPalmShape(canvas, landmarks, palmPaint, Offset.zero);
+  }
+
+  void _drawPalmShape(Canvas canvas, List<Offset> landmarks, Paint paint, Offset offset) {
+    if (landmarks.length < 18) return;
+    
+    final palmPath = Path();
+    
+    // Create a more natural palm shape using curves
+    final wrist = landmarks[0] + offset;
+    final thumbBase = landmarks[1] + offset;
+    final indexBase = landmarks[5] + offset;
+    final middleBase = landmarks[9] + offset;
+    final ringBase = landmarks[13] + offset;
+    final pinkyBase = landmarks[17] + offset;
+    
+    // Start from wrist
+    palmPath.moveTo(wrist.dx, wrist.dy);
+    
+    // Curve to thumb base
+    palmPath.quadraticBezierTo(
+      wrist.dx - (wrist.dx - thumbBase.dx) * 0.3,
+      wrist.dy - (wrist.dy - thumbBase.dy) * 0.7,
+      thumbBase.dx, thumbBase.dy
+    );
+    
+    // Smooth curves between finger bases
+    palmPath.quadraticBezierTo(
+      (thumbBase.dx + indexBase.dx) * 0.5,
+      (thumbBase.dy + indexBase.dy) * 0.4,
+      indexBase.dx, indexBase.dy
+    );
+    
+    palmPath.lineTo(middleBase.dx, middleBase.dy);
+    palmPath.lineTo(ringBase.dx, ringBase.dy);
+    
+    // Curve to pinky base
+    palmPath.quadraticBezierTo(
+      (ringBase.dx + pinkyBase.dx) * 0.5,
+      (ringBase.dy + pinkyBase.dy) * 0.9,
+      pinkyBase.dx, pinkyBase.dy
+    );
+    
+    // Curve back to wrist
+    palmPath.quadraticBezierTo(
+      wrist.dx + (pinkyBase.dx - wrist.dx) * 0.7,
+      wrist.dy + (pinkyBase.dy - wrist.dy) * 0.3,
+      wrist.dx, wrist.dy
+    );
+    
+    canvas.drawPath(palmPath, paint);
+  }
+
+  void _drawRealisticFingers(Canvas canvas, List<Offset> landmarks, Paint fingerPaint, double baseWidth, double tipWidth) {
+    final fingerGroups = [
+      [0, 1, 2, 3, 4], // Thumb (from wrist)
+      [0, 5, 6, 7, 8], // Index
+      [0, 9, 10, 11, 12], // Middle
+      [0, 13, 14, 15, 16], // Ring
+      [0, 17, 18, 19, 20], // Pinky
+    ];
+    
+    for (int fingerIndex = 0; fingerIndex < fingerGroups.length; fingerIndex++) {
+      final finger = fingerGroups[fingerIndex];
+      
+      for (int i = 1; i < finger.length - 1; i++) { // Start from 1 to skip wrist connection
+        if (finger[i] < landmarks.length && finger[i + 1] < landmarks.length) {
+          final p1 = landmarks[finger[i]];
+          final p2 = landmarks[finger[i + 1]];
+          
+          // Calculate tapering width based on segment position
+          final progress = i / (finger.length - 2);
+          final segmentWidth = baseWidth * (1 - progress * 0.4); // Taper to 60% of base width
+          
+          final segmentPaint = Paint()
+            ..shader = fingerPaint.shader
+            ..strokeCap = StrokeCap.round
+            ..strokeWidth = segmentWidth;
+          
+          canvas.drawLine(p1, p2, segmentPaint);
+        }
+      }
+      
+      // Draw rounded joints for smoother appearance
+      for (int i = 1; i < finger.length; i++) {
+        if (finger[i] < landmarks.length) {
+          final progress = (i - 1) / (finger.length - 2);
+          final jointRadius = baseWidth * (1 - progress * 0.4) * 0.5;
+          
+          canvas.drawCircle(landmarks[finger[i]], jointRadius, fingerPaint);
+        }
+      }
+    }
+  }
+
+  void _drawFingernails(Canvas canvas, List<Offset> landmarks, Paint nailPaint, double nailSize) {
+    final fingertips = [4, 8, 12, 16, 20]; // Thumb, Index, Middle, Ring, Pinky tips
+    
+    for (int tip in fingertips) {
+      if (tip < landmarks.length) {
+        // Draw small oval nail
+        final nailRect = Rect.fromCenter(
+          center: landmarks[tip],
+          width: nailSize * 1.2,
+          height: nailSize * 0.8,
+        );
+        
+        canvas.drawOval(nailRect, nailPaint);
+        
+        // Add subtle nail highlight
+        final highlightPaint = Paint()
+          ..color = const Color(0x30FFFFFF)
+          ..style = PaintingStyle.fill;
+        
+        final highlightRect = Rect.fromCenter(
+          center: landmarks[tip] + Offset(-nailSize * 0.2, -nailSize * 0.2),
+          width: nailSize * 0.6,
+          height: nailSize * 0.4,
+        );
+        
+        canvas.drawOval(highlightRect, highlightPaint);
+      }
+    }
+  }
+
+  void _drawKnuckleDetails(Canvas canvas, List<Offset> landmarks, Paint shadowPaint, double avgDistance) {
+    final knuckleGroups = [
+      [6, 7], [10, 11], [14, 15], [18, 19], // Middle segments of fingers
+    ];
+    
+    final knucklePaint = Paint()
+      ..color = shadowPaint.color.withOpacity(0.2)
+      ..strokeWidth = 1.0;
+    
+    for (var knuckle in knuckleGroups) {
+      if (knuckle[0] < landmarks.length && knuckle[1] < landmarks.length) {
+        final center = Offset(
+          (landmarks[knuckle[0]].dx + landmarks[knuckle[1]].dx) / 2,
+          (landmarks[knuckle[0]].dy + landmarks[knuckle[1]].dy) / 2,
+        );
+        
+        // Draw subtle knuckle line
+        final knuckleRadius = avgDistance * 0.15;
+        canvas.drawCircle(center, knuckleRadius, knucklePaint);
+      }
+    }
   }
 
   @override

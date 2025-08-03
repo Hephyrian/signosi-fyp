@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext traffic for AWS S3 domains -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">signosi.s3.amazonaws.com</domain>
+        <domain includeSubdomains="true">s3.amazonaws.com</domain>
+        <domain includeSubdomains="true">amazonaws.com</domain>
+    </domain-config>
+    
+    <!-- Trust system certificates for HTTPS -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

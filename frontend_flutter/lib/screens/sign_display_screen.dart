@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'profile_screen.dart';
 import 'speech_screen.dart';
 import '../widgets/landmark_painter.dart'; // Import the custom painter
@@ -44,8 +45,8 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
   Future<void>? _initializeActiveVideoPlayerFuture;
   bool _isShowingVideoContent = false; // To determine if current sign should display video or landmark
 
-  // FPS for animation - loaded from .env
-  int _animationFps = 30;
+  // FPS for animation - loaded from .env (reduced for better visibility)
+  int _animationFps = 12;
 
   // Test data from Bad_001_hand_landmarks.csv (Right hand, 21 landmarks per frame)
   // Frame 0
@@ -56,13 +57,26 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
   @override
   void initState() {
     super.initState();
-    print('SignDisplayScreen initialized with text: ${widget.textToTranslate}, sourceLanguage: ${widget.sourceLanguage}');
+    final timestamp = DateTime.now().toIso8601String();
+    print('📱 [$timestamp] SignDisplayScreen initialized with text: "${widget.textToTranslate}", sourceLanguage: "${widget.sourceLanguage}"');
     _initialize();
   }
 
   Future<void> _initialize() async {
     await _loadEnvironmentVariables();
-    _animationFps = int.tryParse(dotenv.env['ANIMATION_FPS'] ?? '30') ?? 30;
+    _animationFps = 12; // Force to 12 fps for slower, more viewable animations
+    print('🎯 Animation FPS forced to: $_animationFps');
+    
+    // Check if running on emulator and warn about video playback issues
+    if (_isRunningOnEmulator()) {
+      print('⚠️  Running on Android emulator detected!');
+      print('💡 Video playback may fail due to emulator limitations.');
+      print('🔧 For best results, test on a physical Android device.');
+    }
+    
+    // Test with public video to diagnose ExoPlayer issues
+    _testWithPublicVideo();
+    
     await _fetchTranslationAndPlay();
   }
 
@@ -98,15 +112,25 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
 
     try {
       final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://127.0.0.1:8080';
-      print('Fetching translation for text: ${widget.textToTranslate}, language: ${widget.sourceLanguage}');
+      final timestamp = DateTime.now().toIso8601String();
+      print('🔄 [$timestamp] SignDisplayScreen: Initiating translation request');
+      print('📝 Text: "${widget.textToTranslate}", Language: "${widget.sourceLanguage}", Backend: "$backendUrl"');
+      
       final response = await TranslationService.translateTextToSign(
         widget.textToTranslate,
         widget.sourceLanguage,
         baseUrl: backendUrl, // Pass baseUrl if your service needs it
       );
 
-      print('Translation response received with ${response.signs.length} signs');
+      final responseTimestamp = DateTime.now().toIso8601String();
+      print('✅ [$responseTimestamp] SignDisplayScreen: Translation response received with ${response.signs.length} signs');
+      
       if (response.signs.isNotEmpty) {
+        print('📋 Signs received:');
+        for (int i = 0; i < response.signs.length; i++) {
+          final sign = response.signs[i];
+          print('  [$i] Label: "${sign.label}", VideoPath: "${sign.videoPath}", AnimationPath: "${sign.animationPath}"');
+        }
         _allSigns = response.signs;
         _playSignAtIndex(_currentSignIndex); // This will eventually set _isLoading = false
       } else {
@@ -114,14 +138,15 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
           _errorMessage = 'No signs received for the translation.';
           _isLoading = false;
         });
-        print('No signs received for the translation.');
+        print('⚠️ No signs received for the translation.');
       }
     } catch (e) {
       setState(() {
         _errorMessage = 'Translation error: $e';
         _isLoading = false;
       });
-      print('Translation error: $e');
+      final errorTimestamp = DateTime.now().toIso8601String();
+      print('❌ [$errorTimestamp] SignDisplayScreen: Translation error: $e');
     }
   }
 
@@ -163,7 +188,7 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
     }
 
     if (signLandmarkFrames.isNotEmpty) {
-      testDataSigns.add(Sign(mediaPath: "test_csv_hand_sign", landmarkData: signLandmarkFrames, mediaType: "landmark"));
+      testDataSigns.add(Sign(label: "test_csv_hand_sign", landmarkData: signLandmarkFrames, animationPath: "test_csv_hand_sign"));
       // Example: Add a second (dummy) sign for sequence testing
       // testDataSigns.add(Sign(mediaPath: "test_video_placeholder.mp4", mediaType: "video")); // requires a valid video for testing this path
     }
@@ -208,41 +233,49 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
 
     _currentSignIndex = index;
     final Sign currentSign = _allSigns[_currentSignIndex];
-    final String? signMediaType = currentSign.mediaType?.trim().toLowerCase();
 
-    print('Playing sign at index $index: Path/ID: ${currentSign.mediaPath}, Type: $signMediaType');
+    print('Playing sign at index $index: Path/ID: ${currentSign.label}');
 
-    // New: Check for placeholder_missing from backend
-    if (signMediaType == "placeholder_missing") {
-      setState(() {
-        _isShowingVideoContent = false; // Not showing video or landmark animation
-        // currentSign.mediaPath will contain the label of the missing sign from the backend
-        _errorMessage = 'The sign for "${currentSign.mediaPath}" is not yet available in the dictionary.';
-        // _isLoading will be set to false by _handleUnplayableSign, which also advances
-      });
-      _handleUnplayableSign(); 
-      return;
-    }
+    
 
-    if (signMediaType == "video") {
+    if (currentSign.videoPath != null) {
       setState(() { _isShowingVideoContent = true; });
-      if (currentSign.mediaPath.isEmpty || !_isLikelyVideoUrl(currentSign.mediaPath)) {
-          print('Video path is empty or not a valid URL for sign $index: ${currentSign.mediaPath}');
+      if (currentSign.videoPath == null || currentSign.videoPath!.isEmpty || !_isLikelyVideoUrl(currentSign.videoPath!)) {
+          print('Video path is empty or not a valid URL for sign $index: ${currentSign.videoPath}');
           _errorMessage = 'Invalid video path for sign ${index + 1}.';
           _handleUnplayableSign();
           return;
       }
       try {
-        _activeVideoPlayerController = VideoPlayerController.networkUrl(Uri.parse(currentSign.mediaPath));
+        // Enhanced debugging for video URL
+        print('🎥 Attempting to load video for sign $index');
+        print('🔗 Full URL: ${currentSign.videoPath}');
+        print('🔍 URL Length: ${currentSign.videoPath!.length}');
+        print('🌐 URL starts with HTTPS: ${currentSign.videoPath!.startsWith('https')}');
+        
+        final parsedUri = Uri.parse(currentSign.videoPath!);
+        print('🏠 Host: ${parsedUri.host}');
+        print('📁 Path: ${parsedUri.path}');
+        print('❓ Query params count: ${parsedUri.queryParameters.length}');
+        
+        _activeVideoPlayerController = VideoPlayerController.networkUrl(parsedUri);
         _initializeActiveVideoPlayerFuture = _activeVideoPlayerController!.initialize().then((_) {
           if (!mounted) return;
+          print('✅ Video player initialized successfully for sign $index');
           _activeVideoPlayerController!.play();
           _activeVideoPlayerController!.setLooping(false); // Ensure video does not loop
           _activeVideoPlayerController!.addListener(_videoPlayerListener);
           setState(() { _isLoading = false; });
         }).catchError((error) {
           if (!mounted) return;
-          print('Error initializing video player for sign $index: $error. URL: ${currentSign.mediaPath}');
+          print('❌ Error initializing video player for sign $index: $error');
+          print('🔗 Failed URL: ${currentSign.videoPath}');
+          print('🔧 Error type: ${error.runtimeType}');
+          if (error is PlatformException) {
+            print('🔧 Platform Exception Code: ${error.code}');
+            print('🔧 Platform Exception Message: ${error.message}');
+            print('🔧 Platform Exception Details: ${error.details}');
+          }
           _errorMessage = 'Failed to load video for sign ${index + 1}: $error';
           _handleUnplayableSign(); // This will set isLoading = false and attempt to advance
         });
@@ -252,40 +285,64 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
         _errorMessage = 'Error setting up video for sign ${index + 1}: $e';
         _handleUnplayableSign();
       }
-    } else if (signMediaType != "video") { // Could be landmark or other non-video types
+    } else { 
+        // Handle signs with landmark data (either pre-loaded or needs fetching)
         setState(() { _isShowingVideoContent = false; });
         List<List<double>>? landmarksToAnimate = currentSign.landmarkData;
 
-        if (landmarksToAnimate == null && 
-            currentSign.mediaPath.isNotEmpty &&
-            (currentSign.mediaPath.toLowerCase().endsWith('.json') || currentSign.mediaPath.startsWith('http'))) {
+        // If landmark data is null, try to fetch from landmark path
+        if (landmarksToAnimate == null && currentSign.landmarkPath != null && currentSign.landmarkPath!.isNotEmpty) {
             try {
-                print('Landmark data is null for sign $index, attempting to fetch from: ${currentSign.mediaPath}');
-                final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://127.0.0.1:8080';
-                landmarksToAnimate = await _fetchLandmarkData(backendUrl, currentSign.mediaPath);
+                print('🔄 Fetching landmark data for sign $index from: ${currentSign.landmarkPath}');
+                
+                if (currentSign.landmarkPath!.startsWith('http')) {
+                    // It's a direct S3 URL, use it as-is
+                    print('🌐 Fetching from S3 URL: ${currentSign.landmarkPath!.substring(0, 100)}...');
+                    landmarksToAnimate = await _fetchLandmarkData('', currentSign.landmarkPath!);
+                } else {
+                    // It's a local file path, convert to API endpoint
+                    final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://127.0.0.1:8080';
+                    final filename = currentSign.landmarkPath!.split('/').last;
+                    final landmarkUrl = '$backendUrl/api/translate/landmark-data/$filename';
+                    
+                    print('🌐 Fetching from landmark endpoint: $landmarkUrl');
+                    landmarksToAnimate = await _fetchLandmarkData(backendUrl, landmarkUrl);
+                }
             } catch (e) {
-                print('Failed to fetch remote landmark data for ${currentSign.mediaPath}: $e');
+                print('❌ Failed to fetch landmark data for ${currentSign.label}: $e');
+                _errorMessage = 'Failed to load landmark data for sign ${index + 1}.\nError: $e';
+            }
+        }
+        
+        // Also check animationPath for backward compatibility
+        else if (landmarksToAnimate == null && 
+            currentSign.animationPath != null && currentSign.animationPath!.isNotEmpty &&
+            (currentSign.animationPath!.toLowerCase().endsWith('.json') || currentSign.animationPath!.startsWith('http'))) {
+            try {
+                print('🔄 Fetching landmark data from animationPath for sign $index: ${currentSign.animationPath}');
+                final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://127.0.0.1:8080';
+                landmarksToAnimate = await _fetchLandmarkData(backendUrl, currentSign.animationPath!);
+            } catch (e) {
+                print('❌ Failed to fetch remote landmark data for ${currentSign.label}: $e');
                 _errorMessage = 'Failed to load landmark data for sign ${index + 1}.\nError: $e';
             }
         }
 
         if (landmarksToAnimate != null && landmarksToAnimate.isNotEmpty) {
+            print('✅ Starting landmark animation for sign $index with ${landmarksToAnimate.length} frames');
+            print('🎯 Passing FPS value to controller: $_animationFps');
             _controller.setSignData(
-                [Sign(mediaPath: currentSign.mediaPath, mediaType: currentSign.mediaType, landmarkData: landmarksToAnimate)],
+                [Sign(label: currentSign.label, landmarkData: landmarksToAnimate)],
                 fps: _animationFps
             );
             _controller.onAnimationComplete = _advanceToNextSignAfterDelay;
             _controller.startAnimation();
             setState(() { _isLoading = false; });
         } else {
-            print('No landmark data available or fetched for sign $index.');
+            print('❌ No landmark data available for sign $index (${currentSign.label})');
             _errorMessage = _errorMessage.isNotEmpty ? _errorMessage : 'No landmark data for animation for sign ${index + 1}.';
             _handleUnplayableSign();
         }
-    } else { // Fallback for unhandled types or empty paths if logic gets here
-      print('Sign $index (Path: ${currentSign.mediaPath}) is not video and has no processable landmark data.');
-      _errorMessage = 'Sign ${index + 1} has no playable content.';
-      _handleUnplayableSign();
     }
   }
   
@@ -295,7 +352,7 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
         _isLoading = false; 
     });
     print("Unplayable sign encountered (Index: $_currentSignIndex). Error: $_errorMessage. Advancing after delay.");
-    Future.delayed(const Duration(milliseconds: 1500), _advanceToNextSignAfterDelay);
+            Future.delayed(const Duration(milliseconds: 2500), _advanceToNextSignAfterDelay);
   }
 
   void _videoPlayerListener() {
@@ -322,8 +379,8 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
   
   void _advanceToNextSignAfterDelay() {
     if (!mounted) return;
-    // Adding a small delay for smoother UX, e.g., to see the last frame or video end.
-    Future.delayed(const Duration(milliseconds: 300), _advanceToNextSign);
+    // Adding a longer delay for better comprehension - gives users time to process the sign
+    Future.delayed(const Duration(milliseconds: 2000), _advanceToNextSign);
   }
 
   void _advanceToNextSign() {
@@ -391,34 +448,151 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
     }
   }
 
+  // Test method to try loading a known working video URL
+  void _testWithPublicVideo() async {
+    print('🧪 Testing with public video URL...');
+    const testUrl = 'https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4';
+    
+    try {
+      final testController = VideoPlayerController.networkUrl(Uri.parse(testUrl));
+      await testController.initialize();
+      print('✅ Public video loaded successfully!');
+      testController.dispose();
+    } catch (e) {
+      print('❌ Public video also failed: $e');
+      print('⚠️  This suggests ExoPlayer/emulator compatibility issues.');
+      print('💡 Try running on a physical Android device instead of emulator.');
+    }
+  }
+
+  // Check if running on emulator
+  bool _isRunningOnEmulator() {
+    return Platform.isAndroid && 
+           (Platform.environment['ANDROID_EMULATOR'] == 'true' ||
+            Platform.environment.containsKey('ANDROID_AVD_HOME'));
+  }
+
+  // Helper function to safely convert values to double
+  double _toDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
+  }
+
   // Function to fetch landmark data from backend
   Future<List<List<double>>> _fetchLandmarkData(String baseUrl, String mediaPath) async {
      // mediaPath is the S3 pre-signed URL that directly points to the landmark data (JSON).
      // We should fetch from this URL directly.
 
-     // OLD LOGIC (Incorrect):
-     // final mediaPathSegments = mediaPath.split(Platform.isWindows ? '\' : '/');
-     // final backendDirIndex = mediaPathSegments.indexOf('backend_python');
-     // String relativePath = mediaPathSegments.sublist(backendDirIndex + 1).join('/');
-     // final url = Uri.parse('$baseUrl/$relativePath');
-
-     // CORRECTED LOGIC:
      final url = Uri.parse(mediaPath); // Use the S3 URL (mediaPath) directly
-     print('Fetching landmark data from: $url');
+     final timestamp = DateTime.now().toIso8601String();
+     print('🌐 [$timestamp] SignDisplayScreen: Fetching landmark data from: $url');
 
-     final response = await http.get(url);
+     try {
+       final response = await http.get(url);
+       final responseTimestamp = DateTime.now().toIso8601String();
 
-     if (response.statusCode == 200) {
-       // Assuming the landmark data is a JSON array of arrays of doubles
-       final List<dynamic> framesJson = jsonDecode(response.body) as List<dynamic>;
-       final landmarkData = framesJson
-           .map((frame) => (frame as List<dynamic>).cast<double>().toList())
-           .toList();
-       print('Successfully fetched and parsed landmark data.');
-       return landmarkData;
-     } else {
-       print('Failed to fetch landmark data: ${response.statusCode} - ${response.body}');
-       throw Exception('Failed to fetch landmark data: ${response.statusCode} - ${response.body}');
+             if (response.statusCode == 200) {
+        print('✅ [$responseTimestamp] SignDisplayScreen: Landmark data fetch successful');
+        print('📊 Response size: ${response.body.length} characters');
+        
+        // Safely parse the landmark data with better error handling
+        try {
+          final dynamic responseData = jsonDecode(response.body);
+          
+          if (responseData is List) {
+            // Format 1: Simple array of frames [[x,y,z,vis,pres], ...]
+            final List<dynamic> framesJson = responseData as List<dynamic>;
+            final landmarkData = framesJson
+                .map((frame) {
+                  if (frame is List) {
+                    return (frame as List<dynamic>).cast<double>().toList();
+                  } else {
+                    print('⚠️ Expected frame to be a List, but got: ${frame.runtimeType}');
+                    return <double>[]; // Return empty list for invalid frames
+                  }
+                })
+                .where((frame) => frame.isNotEmpty) // Filter out empty frames
+                .toList();
+            
+            print('📈 Parsed ${landmarkData.length} frames of landmark data (simple format)');
+            if (landmarkData.isNotEmpty) {
+              print('📏 First frame has ${landmarkData[0].length} landmark coordinates');
+            }
+            
+            return landmarkData;
+          } else if (responseData is Map) {
+            // Format 2: MediaPipe structure with frames array
+            print('📊 Detected MediaPipe landmark format');
+            final Map<String, dynamic> data = responseData as Map<String, dynamic>;
+            
+            if (data.containsKey('frames') && data['frames'] is List) {
+              final List<dynamic> frames = data['frames'] as List<dynamic>;
+              final List<List<double>> landmarkData = [];
+              
+              for (final frame in frames) {
+                if (frame is Map) {
+                  final Map<String, dynamic> frameData = frame as Map<String, dynamic>;
+                  
+                  // Extract hand landmarks (prioritize right hand, fallback to left hand)
+                  List<dynamic>? handLandmarks = frameData['right_hand_landmarks'];
+                  if (handLandmarks == null || handLandmarks.isEmpty) {
+                    handLandmarks = frameData['left_hand_landmarks'];
+                  }
+                  
+                  if (handLandmarks != null && handLandmarks is List && handLandmarks.isNotEmpty) {
+                    // Convert landmarks to flat double array
+                    final List<double> frameCoords = [];
+                    for (final landmark in handLandmarks) {
+                      if (landmark is Map) {
+                        final x = _toDouble(landmark['x'] ?? 0.0);
+                        final y = _toDouble(landmark['y'] ?? 0.0);
+                        final z = _toDouble(landmark['z'] ?? 0.0);
+                        final visibility = _toDouble(landmark['visibility'] ?? 1.0);
+                        final presence = _toDouble(landmark['presence'] ?? 1.0);
+                        
+                        frameCoords.addAll([x, y, z, visibility, presence]);
+                      }
+                    }
+                    
+                    if (frameCoords.isNotEmpty) {
+                      landmarkData.add(frameCoords);
+                    }
+                  }
+                }
+              }
+              
+              print('📈 Parsed ${landmarkData.length} frames from MediaPipe format');
+              if (landmarkData.isNotEmpty) {
+                print('📏 First frame has ${landmarkData[0].length} landmark coordinates');
+              }
+              
+              return landmarkData;
+            } else {
+              throw Exception('MediaPipe format missing frames array');
+            }
+          } else {
+            final errorMsg = 'Expected landmark data to be a List or Map, but got: ${responseData.runtimeType}';
+            print('❌ $errorMsg');
+            print('📄 Response data: ${response.body.substring(0, response.body.length > 200 ? 200 : response.body.length)}...');
+            throw Exception(errorMsg);
+          }
+        } catch (e) {
+          final errorMsg = 'Failed to parse landmark data JSON: $e';
+          print('❌ $errorMsg');
+          print('📄 Response body: ${response.body.substring(0, response.body.length > 200 ? 200 : response.body.length)}...');
+          throw Exception(errorMsg);
+        }
+       } else {
+         final errorMsg = 'Failed to fetch landmark data: ${response.statusCode} - ${response.body}';
+         print('❌ [$responseTimestamp] SignDisplayScreen: $errorMsg');
+         throw Exception(errorMsg);
+       }
+     } catch (e) {
+       final errorTimestamp = DateTime.now().toIso8601String();
+       print('❌ [$errorTimestamp] SignDisplayScreen: Exception fetching landmark data: $e');
+       rethrow;
      }
   }
 
@@ -583,7 +757,7 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
               // Video init failed, _errorMessage should have been set in _playSignAtIndex
               return Center(child: Padding(
                 padding: const EdgeInsets.all(16.0),
-                child: Text(_errorMessage.isNotEmpty ? _errorMessage : "Error loading video: ${currentSign.mediaPath}", 
+                child: Text(_errorMessage.isNotEmpty ? _errorMessage : "Error loading video: ${currentSign.label}", 
                             style: const TextStyle(color: Colors.red, fontSize: 16), textAlign: TextAlign.center),
               ));
             }
@@ -618,7 +792,7 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
     return Center(child: Padding(
       padding: const EdgeInsets.all(16.0),
       child: Text(
-        _errorMessage.isNotEmpty ? _errorMessage : 'Preparing content for sign ${currentSign.mediaPath}...',
+        _errorMessage.isNotEmpty ? _errorMessage : 'Preparing content for sign ${currentSign.label}...',
         style: TextStyle(color: _errorMessage.isNotEmpty ? Colors.red : Colors.grey, fontSize: 16),
         textAlign: TextAlign.center,
       ),

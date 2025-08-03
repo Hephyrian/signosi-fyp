@@ -64,24 +64,54 @@ class _DebugScreenState extends State<DebugScreen> {
     
     setState(() {
       _isLoading = true;
-      _debugOutput = 'Sending request to API...';
+      _debugOutput = '🧪 Starting API test...\n';
     });
     
     try {
       final text = _textController.text.trim();
+      final timestamp = DateTime.now().toIso8601String();
+      
+      setState(() {
+        _debugOutput += '⏰ [$timestamp] Test initiated\n';
+        _debugOutput += '📝 Text: "$text"\n';
+        _debugOutput += '🌐 Language: $_selectedLanguage\n';
+        _debugOutput += '🚀 Sending request to backend...\n\n';
+      });
+      
       final response = await TranslationService.translateTextToSign(
         text, 
         _selectedLanguage
       );
       
+      final responseTimestamp = DateTime.now().toIso8601String();
       setState(() {
-        _debugOutput = 'API Response:\n'
-            'Number of signs: ${response.signs.length}\n'
-            'Sign paths: ${response.signs.map((s) => s.mediaPath).join('\n')}\n';
+        _debugOutput += '✅ [$responseTimestamp] API Response received!\n';
+        _debugOutput += '📊 Number of signs: ${response.signs.length}\n\n';
+        
+        if (response.signs.isNotEmpty) {
+          _debugOutput += '📋 Sign Details:\n';
+          for (int i = 0; i < response.signs.length; i++) {
+            final sign = response.signs[i];
+            _debugOutput += '  [$i] "${sign.label}"\n';
+            if (sign.videoPath != null) {
+              _debugOutput += '    🎥 Video: ${sign.videoPath}\n';
+            }
+            if (sign.animationPath != null) {
+              _debugOutput += '    🎬 Animation: ${sign.animationPath}\n';
+            }
+            if (sign.landmarkData != null) {
+              _debugOutput += '    📈 Landmark frames: ${sign.landmarkData!.length}\n';
+            }
+            _debugOutput += '\n';
+          }
+        } else {
+          _debugOutput += '⚠️ No signs returned\n';
+        }
       });
     } catch (e) {
+      final errorTimestamp = DateTime.now().toIso8601String();
       setState(() {
-        _debugOutput = 'API Error: $e';
+        _debugOutput += '❌ [$errorTimestamp] API Error:\n$e\n';
       });
     } finally {
       setState(() {
