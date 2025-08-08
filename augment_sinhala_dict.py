@@ -2,8 +2,30 @@ import json
 import re
 import os
 
-# INPUT_FILE will also be the OUTPUT_FILE in this version
+
 IO_FILE = 'backend_python/sign-language-translator/sign_language_translator/assets/lk-dictionary-mapping.json'
+
+# Sinhala consonants set, including prenasalized/retroflex forms used in landmarks
+SINHALA_CONSONANTS = {
+    # Base consonants
+    "ක", "ඛ", "ග", "ඝ",
+    # Additional consonant letters present in landmarks
+    "ඟ", "ඳ", "ඹ",
+    # Prenasalized / combined forms
+    "ඟ", "ඳ", "ඹ",
+    # Palatals
+    "ච", "ඡ", "ජ", "ඣ",
+    # Retroflex series
+    "ට", "ඨ", "ඩ", "ඪ", "ණ", "ඬ",
+    # Dentals
+    "ත", "ථ", "ද", "ධ", "න",
+    # Labials
+    "ප", "ඵ", "බ", "භ", "ම",
+    # Approximants and others
+    "ය", "ර", "ල", "ව",
+    # Sibilants and others
+    "ශ", "ෂ", "ස", "හ", "ළ", "ෆ",
+}
 
 def generate_new_variations_from_single_word(word):
     """
@@ -16,9 +38,14 @@ def generate_new_variations_from_single_word(word):
         list: A list of new (derived) string variations. Should NOT include the original word.
     """
     variations = []
+
+    # Special-case: single-letter consonants → add long-e (ේ) variant (e.g., ක → කේ)
+    if len(word) == 1 and word in SINHALA_CONSONANTS:
+        return [word + "්"]
     
-    # Rule 0: Skip if the word is purely numeric or too short
-    if word.isnumeric() or len(word) < 2:
+    # Rule 0: Skip if the word is purely numeric
+    # (Length check removed to allow single-letter handling above)
+    if word.isnumeric():
         return []
 
     # Rule 1: Strip common enumerators/prefixes like "1. ", "10) ", "(අ) " etc.
