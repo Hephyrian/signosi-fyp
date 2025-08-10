@@ -45,8 +45,8 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
   Future<void>? _initializeActiveVideoPlayerFuture;
   bool _isShowingVideoContent = false; // To determine if current sign should display video or landmark
 
-  // FPS for animation - loaded from .env (reduced for better visibility)
-  int _animationFps = 12;
+  // FPS for animation - default from .env (fallback to 30 if missing)
+  int _animationFps = 30;
 
   // Test data from Bad_001_hand_landmarks.csv (Right hand, 21 landmarks per frame)
   // Frame 0
@@ -64,8 +64,11 @@ class _SignDisplayScreenState extends State<SignDisplayScreen> {
 
   Future<void> _initialize() async {
     await _loadEnvironmentVariables();
-    _animationFps = 12; // Force to 12 fps for slower, more viewable animations
-    print('🎯 Animation FPS forced to: $_animationFps');
+    // Read ANIMATION_FPS from env and clamp to a sensible range
+    final envFpsStr = dotenv.env['ANIMATION_FPS'];
+    final parsedFps = int.tryParse(envFpsStr ?? '') ?? 30;
+    _animationFps = parsedFps.clamp(5, 30);
+    print('🎯 Animation FPS loaded from env: ${envFpsStr ?? 'not set'}, using: $_animationFps');
     
     // Check if running on emulator and warn about video playback issues
     if (_isRunningOnEmulator()) {

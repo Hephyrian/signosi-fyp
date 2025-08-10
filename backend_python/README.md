@@ -73,14 +73,79 @@ To build and run the backend using Docker:
 
 ## API Endpoints
 
-(Details to be added as they are implemented)
+These endpoints power text→Sri Lankan Sign Language (SLSL) translation and single-letter fallback.
 
-*   `/`: Health check.
-*   `/api/speech-to-text/realtime` (POST): For real-time speech recognition.
-*   `/api/speech-to-text/asynchronous` (POST): For asynchronous speech recognition of audio files.
-*   `/api/auth/login` (POST): User login.
-*   `/api/auth/register` (POST): User registration.
-*   `/api/data` (GET, POST): Placeholder for data operations.
+- `POST /api/translate/text-to-slsl`
+  - Translates the provided text to SLSL. If a word is not found in the dictionary, the backend automatically falls back to per-letter signs (Sinhala) using pre-extracted landmarks.
+  - Request body:
+    ```json
+    {
+      "text": "අම්මා",
+      "source_language": "si"
+    }
+    ```
+  - Response shape (examples):
+    - Video or mixed media per sign:
+      ```json
+      {
+        "signs": [
+          { "label": "ayubowan", "video_path": "https://.../ayubowan.mp4" },
+          { "label": "to_you",   "video_path": "https://.../to_you.mp4" }
+        ]
+      }
+      ```
+    - Single-letter fallback for unknown word tokens (Sinhala):
+      ```json
+      {
+        "signs": [
+          { "label": "letter_ක්", "landmark_data": "https://.../letters/%E0%B6%9A%E0%B7%8A.json", "media_type": "landmarks" },
+          { "label": "letter_ආ", "landmark_data": "https://.../letters/%E0%B6%85%E0%B7%8F.json",    "media_type": "landmarks" }
+        ]
+      }
+      ```
+      Notes:
+      - `landmark_data` may be a pre-signed S3 URL, a local file path served by the backend, or inline landmark frames. The frontend handles URL/file-path fetching and can draw the coordinates.
+      - Each item can include `video_path`, `animation_path`, and/or `landmark_data` depending on availability.
+
+- `GET /api/translate/landmark-data/<filename>`
+  - Serves JSON landmark files from `sign-language-translator/sign_language_translator/assets/datasets/output_landmarks/`.
+
+- `GET /media/<path:filename>`
+  - Serves static media files embedded with the dataset (if present locally).
+
+### cURL example
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/translate/text-to-slsl \
+  -H "Content-Type: application/json" \
+  -d '{"text":"අම්මා","source_language":"si"}'
+```
+
+Expected: a JSON object with a `signs` array containing either video paths or letter-level landmark sources.
+
+## Single-Letter Recognition (Sinhala)
+
+This backend supports Sinhala single-letter fallback for words not found in the dictionary. The fallback emits only MAIN letters for which landmark files exist (base consonants and independent vowels), ignoring vowel modifiers and virama.
+
+- Implementation: see `app/services/translation_service.py` and `letter_mapping_service.py`.
+  - Unknown tokens are normalized to main letters: consonant clusters with modifiers/virama → base consonant only; independent vowels are kept as-is.
+  - Each main letter maps to a landmark JSON and is returned as a sign with `media_type: "landmarks"`.
+- Landmark sources:
+  - Local assets: `backend_python/sign-language-translator/sign_language_translator/assets/datasets/output_landmarks/*.json`
+  - Or AWS S3 (recommended for distribution) via pre-signed URLs.
+- Optional environment for S3 integration:
+  - `AWS_S3_BUCKET_NAME`
+  - `AWS_ACCESS_KEY_ID`
+  - `AWS_SECRET_ACCESS_KEY`
+  - `AWS_S3_REGION`
+
+Quick local verification:
+
+```bash
+python backend_python/test_sinhala_letter_mapping.py | cat
+```
+
+You should see available letters, sample word breakdowns, and whether landmark frames are detected.
 
 # Video Landmark Extraction Script
 

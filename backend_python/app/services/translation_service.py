@@ -64,6 +64,11 @@ if AWS_S3_BUCKET_NAME and AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY and AWS_S3
 else:
     logging.warning("S3 credentials/bucket name/region not fully configured in environment variables. S3 features will be disabled.")
 
+# === Sinhala combining marks for override heuristics ===
+SINHALA_COMBINING_MARKS_SET = set([
+    'ා','ැ','ෑ','ි','ී','ු','ූ','ෘ','ෙ','ේ','ෛ','ො','ෝ','ෞ','ෲ','්'
+])
+
 # === Custom video path logic for lk-custom dataset ===
 _custom_lk_mapping_data = None
 
@@ -250,6 +255,17 @@ def translate_text_to_slsl(text, source_language_code="si", request_id="UNKNOWN"
     logging.info(f"🤖 [{request_id}] Using model: {model_key}")
     
     try:
+        # Check if the text contains combining marks and should use letter fallback directly
+        if _has_sinhala_combining_marks(text):
+            expected_len = _expected_option_b_len(text)
+            if expected_len > 3:  # Use letter fallback for longer words with combining marks
+                logging.info(f"🔤 [{request_id}] Text '{text}' contains combining marks and has {expected_len} components - using direct letter fallback")
+                letter_service = get_letter_mapping_service()
+                letter_signs = letter_service.get_word_as_letter_sequence(text)
+                if letter_signs:
+                    logging.info(f"✅ [{request_id}] Generated {len(letter_signs)} letter signs directly")
+                    return {"signs": letter_signs}
+        
         model_start_time = datetime.now()
         logging.info(f"⚡ [{request_id}] Calling translation model...")
         signs_data = model(text)
@@ -261,6 +277,18 @@ def translate_text_to_slsl(text, source_language_code="si", request_id="UNKNOWN"
         enhanced_signs_data = []
         fallback_count = 0
         
+        # Helper to detect Sinhala combining marks in a token
+        def _has_sinhala_combining_marks(token: str) -> bool:
+            return any(ch in SINHALA_COMBINING_MARKS_SET for ch in token)
+
+        # Helper to compute expected Option-B length
+        def _expected_option_b_len(token: str) -> int:
+            try:
+                letter_service = get_letter_mapping_service()
+                return len([d for d in letter_service.get_word_as_letter_sequence(token)])
+            except Exception:
+                return 0
+
         for i, sign_info in enumerate(signs_data):
             if isinstance(sign_info, dict):
                 label = sign_info.get("label", "")
@@ -286,6 +314,19 @@ def translate_text_to_slsl(text, source_language_code="si", request_id="UNKNOWN"
                         enhanced_signs_data.append(sign_info)  # Keep original if fallback fails
                         logging.warning(f"⚠️ [{request_id}] Letter fallback failed for '{label}'")
                 else:
+                    if label and not label.startswith("letter_") and _has_sinhala_combining_marks(label):
+                        try:
+                            expected_len = _expected_option_b_len(label)
+                            if expected_len > 1:
+                                logging.info(f"🔤 [{request_id}] Overriding model output for '{label}' with letter fallback (expected {expected_len} units)")
+                                letter_service = get_letter_mapping_service()
+                                letter_signs = letter_service.get_word_as_letter_sequence(label)
+                                if letter_signs:
+                                    enhanced_signs_data.extend(letter_signs)
+                                    continue
+                        except Exception as e:
+                            logging.warning(f"⚠️ [{request_id}] Override heuristic failed for '{label}': {e}")
+
                     enhanced_signs_data.append(sign_info)
             else:
                 enhanced_signs_data.append(sign_info)

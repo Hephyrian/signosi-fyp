@@ -22,6 +22,7 @@ SINHALA_INDEPENDENT_VOWELS = {
     'අ', 'ආ', 'ඇ', 'ඈ', 'ඉ', 'ඊ', 'උ', 'ඌ', 'ඍ', 'ඎ', 'එ', 'ඒ', 'ඓ', 'ඔ', 'ඕ', 'ඖ'
 }
 HAL_KIRIMA = '්'
+SINHALA_COMBINING_MARKS = set(SINHALA_VOWEL_MODIFIERS.keys()) | {HAL_KIRIMA}
 
 class LetterMappingService:
     """
@@ -136,10 +137,48 @@ class LetterMappingService:
                 i += 1
                 
         return decomposed
+
+    def break_word_to_main_letters(self, word: str) -> List[str]:
+        """
+        Break a Sinhala word into MAIN letters only, suitable for fallback where
+        landmarks exist only for base consonants and independent vowels.
+
+        Rules:
+        - Consonant + any modifiers/virama -> emit only the base consonant
+        - Independent vowels are emitted as-is
+        - All combining marks (vowel modifiers, virama) are ignored
+        - Other characters are skipped
+        """
+        main_letters: List[str] = []
+        i = 0
+        n = len(word)
+
+        while i < n:
+            char = word[i]
+
+            if char in SINHALA_CONSONANTS:
+                # Emit base consonant
+                main_letters.append(char)
+                i += 1
+                # Skip any trailing combining marks (modifiers/virama)
+                while i < n and (word[i] in SINHALA_COMBINING_MARKS):
+                    i += 1
+                continue
+
+            if char in SINHALA_INDEPENDENT_VOWELS:
+                main_letters.append(char)
+                i += 1
+                continue
+
+            # Skip any other characters (punctuation, numbers, ZWJ, etc.)
+            i += 1
+
+        return main_letters
     
     def get_word_as_letter_sequence(self, word: str) -> List[Dict]:
         """
-        Convert a word to a sequence of letter sign representations
+        Convert a word to a sequence of sign representations using base
+        consonants plus independent vowels derived from modifiers (Option B).
         
         Args:
             word: Word to convert to letter signs
@@ -147,16 +186,20 @@ class LetterMappingService:
         Returns:
             List of sign dictionaries for each letter
         """
-        letters = self.break_word_to_letters(word)
+        # Use base consonants + independent vowels derived from modifiers
+        letters = self._break_word_letters_option_b(word)
+        logging.debug(f"[LetterMapping] OptionB letters for '{word}': {letters}")
         letter_signs = []
         
         for letter in letters:
             landmark_data = self.get_letter_landmark(letter)
             if landmark_data:
-                # Create sign dictionary format compatible with existing system
+                # Prefer a fetchable path so frontend can load frames on demand
+                landmark_path = f"/api/translate/landmark-data/{letter}.json"
+                logging.debug(f"[LetterMapping] Mapped letter '{letter}' to landmark path: {landmark_path}")
                 sign_dict = {
                     "label": f"letter_{letter}",
-                    "landmark_data": landmark_data,
+                    "landmark_data": landmark_path,
                     "media_type": "landmarks",
                     "letter": letter
                 }
@@ -171,7 +214,131 @@ class LetterMappingService:
                     "letter": letter
                 })
         
+        try:
+            sign_labels = [s.get("label", "unknown") for s in letter_signs]
+            logging.debug(f"[LetterMapping] Final letter signs for '{word}': {sign_labels}")
+        except Exception:
+            pass
+
         return letter_signs
+
+    def _break_word_letters_option_b(self, word: str) -> List[str]:
+        """
+        Break a Sinhala word into base consonants and independent vowels
+        (Option B):
+          - Consonant + vowel modifier -> [base consonant, independent vowel]
+          - Consonant + virama (්)     -> [base consonant]
+          - Consonant without modifier -> [base consonant] (implicit 'අ' omitted)
+          - Independent vowels         -> [vowel]
+        """
+        normalized_word = self._normalize_prebase_vowel_signs(word)
+        if normalized_word != word:
+            logging.debug(f"[LetterMapping] Normalized '{word}' -> '{normalized_word}'")
+        detailed_tokens = self.break_word_to_letters(normalized_word)
+        logging.debug(f"[LetterMapping] Detailed tokens for '{normalized_word}': {detailed_tokens}")
+        result_letters: List[str] = []
+
+        i = 0
+        m = len(detailed_tokens)
+        while i < m:
+            token = detailed_tokens[i]
+
+            # Handle consonant-with-hal (e.g., 'ක්') by emitting base consonant
+            if token.endswith(HAL_KIRIMA) and token[:-1] in SINHALA_CONSONANTS:
+                base_consonant = token[:-1]
+
+                # Look ahead to decide handling
+                next_token = detailed_tokens[i + 1] if (i + 1) < m else None
+
+                if next_token in SINHALA_INDEPENDENT_VOWELS:
+                    # Consonant + vowel → emit base consonant and vowel (omit implicit 'අ')
+                    if next_token == 'අ':
+                        result_letters.append(base_consonant)
+                    else:
+                        result_letters.append(base_consonant)
+                        result_letters.append(next_token)
+                    i += 2  # consume consonant-with-hal and the vowel
+                    continue
+                else:
+                    # Pure virama consonant (e.g., gemination or word-final): emit base consonant
+                    result_letters.append(base_consonant)
+                    i += 1
+                    continue
+
+            # Independent vowels
+            if token in SINHALA_INDEPENDENT_VOWELS:
+                result_letters.append(token)
+                i += 1
+                continue
+
+            # Other characters (punctuation/numbers/etc.) pass through; may not map to landmarks
+            result_letters.append(token)
+            i += 1
+
+        logging.debug(f"[LetterMapping] Result letters for '{normalized_word}': {result_letters}")
+        return result_letters
+
+    def _normalize_prebase_vowel_signs(self, word: str) -> str:
+        """
+        Normalize words where certain Sinhala vowel signs may appear before the
+        base consonant in storage order by moving the sign after the consonant.
+
+        Example: 'ො' + 'ක' -> 'ක' + 'ො'
+        This helps downstream logic that expects consonant-then-modifier.
+        """
+        chars = list(word)
+        i = 0
+        n = len(chars)
+        output: List[str] = []
+
+        # Helper for combining common split vowel sequences into single signs
+        def combine_split_vowel_signs(consonant: str, following: list[str]) -> tuple[list[str], int]:
+            # Map known split sequences after a consonant to a single combining mark
+            # e.g., 'ෙ' + 'ා' => 'ො' (o), 'ෙ' + 'ී' => 'ේ' (ee)
+            if len(following) >= 2:
+                first, second = following[0], following[1]
+                if first == 'ෙ' and second == 'ා':
+                    return [consonant, 'ො'], 2
+                if first == 'ෙ' and second == 'ී':
+                    return [consonant, 'ේ'], 2
+            # Handle already-composed single signs after a consonant
+            if len(following) >= 1:
+                first = following[0]
+                if first in {'ො', 'ෝ', 'ෞ'}:
+                    return [consonant, first], 1
+            if len(following) >= 1:
+                first = following[0]
+                if first == 'ෙ':
+                    return [consonant, 'ෙ'], 1
+            return [consonant], 0
+
+        while i < n:
+            current_char = chars[i]
+            next_char = chars[i + 1] if (i + 1) < n else None
+
+            # Case 1: Pre-base vowel sign 'ෙ' before a consonant (rare in stored order)
+            if current_char == 'ෙ' and next_char in SINHALA_CONSONANTS:
+                # Swap and also try to fold sequences like 'ෙ' + 'ා' into 'ො'
+                consonant = next_char
+                remaining = chars[i + 2 : i + 4]  # look ahead a couple
+                combined, consumed = combine_split_vowel_signs(consonant, [current_char] + remaining)
+                output.extend(combined)
+                i += 2 + max(consumed - 1, 0)
+                continue
+
+            # Case 2: Consonant followed by split vowel sequence (common IME order)
+            if current_char in SINHALA_CONSONANTS:
+                remaining = chars[i + 1 : i + 4]
+                combined, consumed = combine_split_vowel_signs(current_char, remaining)
+                output.extend(combined)
+                i += 1 + consumed
+                continue
+
+            # Default: passthrough
+            output.append(current_char)
+            i += 1
+
+        return "".join(output)
     
     def is_letter_available(self, letter: str) -> bool:
         """

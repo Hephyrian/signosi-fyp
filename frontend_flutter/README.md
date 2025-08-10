@@ -7,6 +7,7 @@ A Flutter application for translating text to sign language videos or animations
 - Speech-to-text translation in multiple languages (Sinhala, English, Tamil)
 - Sign language video playback
 - Clean and modern UI following Material 3 design
+- Single-letter fallback (Sinhala): if a word has no direct sign, the app renders per-letter landmark animations using only MAIN letters (base consonants and independent vowels)
 
 ## Setup
 
@@ -59,3 +60,42 @@ For testing without a backend:
 - speech_to_text: Speech recognition
 - http: API requests
 - provider: State management
+
+## Single-Letter Recognition (Sinhala)
+
+When the backend falls back to per-letter signs (Sinhala), each sign item in the response can include landmark data or a URL to fetch it. The Flutter app supports two cases via `Sign` model in `lib/models/translation_response.dart`:
+
+- `landmarkData`: Inline list-of-frames of landmark coordinates
+- `landmarkPath`: A URL or file path to a JSON with frames to be fetched
+
+Rendering is handled by `lib/widgets/landmark_painter.dart` which draws a stylized hand from MediaPipe-style landmark frames. The painter accepts:
+
+- `numberOfPoseLandmarks`: set to 0 for letter-only data
+- `numberOfHandLandmarks`: 21 for MediaPipe Hands
+- `numberOfHands`: 1 by default
+- `isWorldLandmarks`: whether values are world or image coordinates
+- `drawStylizedHands`: enables improved visual rendering of fingers and palm
+
+Expected backend response for fallback (example):
+
+```json
+{
+  "signs": [
+    { "label": "letter_ක", "landmark_data": "https://.../ක.json", "media_type": "landmarks" },
+    { "label": "letter_අ", "landmark_data": "https://.../අ.json", "media_type": "landmarks" }
+  ]
+}
+```
+
+Frontend parsing logic lives in `lib/services/translation_service.dart` and `lib/models/translation_response.dart`:
+
+- The service posts to `POST /api/translate/text-to-slsl` with `{ text, source_language, target_language }`
+- The model supports `videoPath`, `animationPath`, and `landmarkData` or `landmarkPath`
+
+Normalization rule (important): The backend sends only base consonants and independent vowels for fallback; vowel modifiers and virama are not emitted as separate letters.
+
+Tips:
+
+- Ensure `BACKEND_URL` points to your running backend, e.g. `http://127.0.0.1:8080`
+- If the backend serves pre-signed S3 URLs for `landmark_data`, the app will fetch and render them
+- Use `ANIMATION_FPS` to tune playback smoothness

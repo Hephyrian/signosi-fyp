@@ -56,7 +56,8 @@ def test_word_breakdown():
         "පොත",    # book
         "ගෙදර",   # house
         "ස්කෝලය", # school
-        "කතා"     # story
+        "කතා",
+        "කොල්ලො"
     ]
     
     for word in test_words:
