@@ -81,15 +81,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ],
             stops: const [0.0, 0.7],
           ),
-          image: DecorationImage(
-            image: const AssetImage('assets/images/subtle_pattern.png'),
-            fit: BoxFit.cover,
-            opacity: 0.04,
-            colorFilter: ColorFilter.mode(
-              Theme.of(context).colorScheme.primary.withOpacity(0.05),
-              BlendMode.srcOver,
-            ),
-          ),
         ),
         child: SafeArea(
           child: Padding(

@@ -2,42 +2,37 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import os
+import argparse
 
-# --- CONFIGURATION ---
-VIDEO_PATH = "sinhala_alphabet.f605.mp4"  # The video file to process
-OUTPUT_DIR = "output_signs_large"    # Using a new folder for the larger crops
-MIN_DETECTION_CONFIDENCE = 0.6       # Minimum confidence to consider a hand detected
+# --- Path-robust defaults ---
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_VIDEO_PATH = os.path.join(SCRIPT_DIR, "sinhala_alphabet.f605.mp4")
+DEFAULT_OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output_signs_large")
 
-# --- ADJUST THIS VALUE TO CHANGE THE CAPTURE AREA ---
-# Increase this value to capture a larger area around the hand.
-# A smaller value creates a tighter crop. 70 is a good starting point for a larger area.
-PADDING = 70
-
-def process_video():
+def process_video(video_path: str, output_dir: str, min_detection_confidence: float = 0.6, padding: int = 70):
     """
     Processes a video to detect hands, crop them with a transparent background,
     and save them as individual PNG files.
     """
-    # --- INITIALIZATION ---
     mp_hands = mp.solutions.hands
     hands = mp_hands.Hands(
         static_image_mode=False,
         max_num_hands=2,
-        min_detection_confidence=MIN_DETECTION_CONFIDENCE
+        min_detection_confidence=min_detection_confidence
     )
     mp_drawing = mp.solutions.drawing_utils
 
     # Create output directory if it doesn't exist
-    if not os.path.exists(OUTPUT_DIR):
-        os.makedirs(OUTPUT_DIR)
-        print(f"Created directory: {OUTPUT_DIR}")
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        print(f"Created directory: {output_dir}")
 
     # Check if video file exists
-    if not os.path.exists(VIDEO_PATH):
-        print(f"Error: Video file not found at '{VIDEO_PATH}'")
+    if not os.path.exists(video_path):
+        print(f"Error: Video file not found at '{video_path}'")
         return
 
-    cap = cv2.VideoCapture(VIDEO_PATH)
+    cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         print("Error: Could not open video.")
         return
@@ -67,16 +62,15 @@ def process_video():
         # If hands are detected
         if results.multi_hand_landmarks:
             for hand_id, hand_landmarks in enumerate(results.multi_hand_landmarks):
-                
                 # --- Create Bounding Box ---
                 landmarks = hand_landmarks.landmark
                 x_coords = [lm.x for lm in landmarks]
                 y_coords = [lm.y for lm in landmarks]
                 
-                x_min = int(min(x_coords) * frame_width) - PADDING
-                y_min = int(min(y_coords) * frame_height) - PADDING
-                x_max = int(max(x_coords) * frame_width) + PADDING
-                y_max = int(max(y_coords) * frame_height) + PADDING
+                x_min = int(min(x_coords) * frame_width) - padding
+                y_min = int(min(y_coords) * frame_height) - padding
+                x_max = int(max(x_coords) * frame_width) + padding
+                y_max = int(max(y_coords) * frame_height) + padding
 
                 # Ensure bounding box is within frame boundaries
                 x_min = max(0, x_min)
@@ -111,7 +105,7 @@ def process_video():
                 bgra_hand[:, :, 3] = mask
 
                 # --- Save the Final Image ---
-                output_filename = os.path.join(OUTPUT_DIR, f"frame_{frame_count:04d}_hand_{hand_id}.png")
+                output_filename = os.path.join(output_dir, f"frame_{frame_count:04d}_hand_{hand_id}.png")
                 cv2.imwrite(output_filename, bgra_hand)
 
         if frame_count % 30 == 0:
@@ -121,8 +115,18 @@ def process_video():
     hands.close()
     cap.release()
     print("Video processing complete.")
-    print(f"Cropped hand images are saved in the '{OUTPUT_DIR}' folder.")
+    print(f"Cropped hand images are saved in the '{output_dir}' folder.")
 
-# --- RUN THE SCRIPT ---
+def parse_args():
+    parser = argparse.ArgumentParser(description="Process a video to extract hand crops with transparency.")
+    parser.add_argument("--video", "-v", default=DEFAULT_VIDEO_PATH, help="Path to input video file")
+    parser.add_argument("--out", "-o", default=DEFAULT_OUTPUT_DIR, help="Directory to save output PNGs")
+    parser.add_argument("--conf", type=float, default=0.6, help="Min detection confidence for hands")
+    parser.add_argument("--pad", type=int, default=70, help="Padding around detected hand bbox")
+    return parser.parse_args()
+
 if __name__ == '__main__':
-    process_video()
+    args = parse_args()
+    process_video(args.video, args.out, args.conf, args.pad)
+
+

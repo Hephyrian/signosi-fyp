@@ -30,6 +30,7 @@ logging.basicConfig(level=logging.DEBUG, # Changed level to DEBUG
 if SLT_PACKAGE_ROOT_DIR not in sys.path:
     sys.path.insert(0, SLT_PACKAGE_ROOT_DIR)
 
+SLT_IMPORT_ERROR: str | None = None
 try:
     # Core models and config
     import sign_language_translator.models as slt_models
@@ -39,6 +40,7 @@ try:
     from sign_language_translator.vision.landmarks.landmarks import Landmarks
 
 except ImportError as e:
+    SLT_IMPORT_ERROR = str(e)
     logging.error(f"Error importing sign_language_translator or its components: {e}")
     slt_models = None
 
@@ -49,6 +51,7 @@ AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
 AWS_S3_REGION = os.environ.get('AWS_S3_REGION')
 
 s3_client = None
+S3_INIT_ERROR: str | None = None
 if AWS_S3_BUCKET_NAME and AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY and AWS_S3_REGION:
     try:
         s3_client = boto3.client(
@@ -59,6 +62,7 @@ if AWS_S3_BUCKET_NAME and AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY and AWS_S3
         )
         logging.info(f"S3 client initialized for bucket '{AWS_S3_BUCKET_NAME}' in region '{AWS_S3_REGION}'.")
     except Exception as e:
+        S3_INIT_ERROR = str(e)
         logging.error(f"Failed to initialize S3 client: {e}", exc_info=True)
         s3_client = None
 else:
@@ -229,6 +233,78 @@ if slt_models:
     except Exception as e:
         logging.error(f"Error initializing custom Sinhala model: {e}", exc_info=True)
 
+def get_diagnostics(full: bool = True) -> dict:
+    """Return diagnostics about the translation service environment."""
+    # cv2 availability
+    cv2_available = True
+    cv2_error = None
+    try:
+        import cv2  # noqa: F401
+    except Exception as e:  # pragma: no cover
+        cv2_available = False
+        cv2_error = str(e)
+
+    # Assets information
+    assets_root = None
+    lk_mapping_path = None
+    lk_mapping_exists = False
+    try:
+        assets_root = Assets.ROOT_DIR  # type: ignore[name-defined]
+        lk_mapping_path = os.path.join(assets_root, "lk-dictionary-mapping.json")
+        lk_mapping_exists = os.path.exists(lk_mapping_path)
+    except Exception:
+        pass
+
+    # Letter landmarks
+    landmarks_dir = os.path.join(
+        os.path.dirname(__file__),
+        '..', '..',
+        'sign-language-translator',
+        'sign_language_translator',
+        'assets',
+        'datasets',
+        'output_landmarks',
+    )
+    try:
+        landmark_files = [f for f in os.listdir(os.path.abspath(landmarks_dir)) if f.endswith('.json')]
+        landmarks_count = len(landmark_files)
+    except Exception:
+        landmarks_count = 0
+
+    diag_full = {
+        "python_version": sys.version.split(" ")[0],
+        "cwd": os.getcwd(),
+        "slt_imported": bool(slt_models),
+        "slt_import_error": SLT_IMPORT_ERROR,
+        "cv2_available": cv2_available,
+        "cv2_error": cv2_error,
+        "assets_root": assets_root,
+        "lk_dict_path": lk_mapping_path,
+        "lk_dict_exists": lk_mapping_exists,
+        "letter_landmarks_dir": os.path.abspath(landmarks_dir),
+        "letter_landmarks_count": landmarks_count,
+        "models_loaded": list(models.keys()),
+        "expected_model_si": "si_to_sinhala-sl" in models,
+        "s3_configured": all([
+            bool(AWS_S3_BUCKET_NAME), bool(AWS_ACCESS_KEY_ID), bool(AWS_SECRET_ACCESS_KEY), bool(AWS_S3_REGION)
+        ]),
+        "s3_client_initialized": s3_client is not None,
+        "s3_bucket": AWS_S3_BUCKET_NAME,
+        "s3_error": S3_INIT_ERROR,
+    }
+
+    if full:
+        return diag_full
+    # minimal subset for error payloads
+    return {
+        "slt_imported": diag_full["slt_imported"],
+        "slt_import_error": diag_full["slt_import_error"],
+        "cv2_available": diag_full["cv2_available"],
+        "letter_landmarks_count": diag_full["letter_landmarks_count"],
+        "models_loaded_count": len(diag_full["models_loaded"]),
+        "expected_model_si": diag_full["expected_model_si"],
+    }
+
 def translate_text_to_slsl(text, source_language_code="si", request_id="UNKNOWN"):
     """
     Translates text to Sinhala Sign Language, returning all available media formats for each sign.
@@ -239,17 +315,28 @@ def translate_text_to_slsl(text, source_language_code="si", request_id="UNKNOWN"
     
     logging.info(f"🎯 [{timestamp}] TRANSLATION_SERVICE [{request_id}] Starting translation")
     logging.info(f"📊 [{request_id}] Input - Text: '{text}', Language: '{source_language_code}', Length: {len(text)}")
+
+    # Helper utilities used across branches
+    def _has_sinhala_combining_marks(token: str) -> bool:
+        return any(ch in SINHALA_COMBINING_MARKS_SET for ch in token)
+
+    def _expected_option_b_len(token: str) -> int:
+        try:
+            letter_service_local = get_letter_mapping_service()
+            return len([d for d in letter_service_local.get_word_as_letter_sequence(token)])
+        except Exception:
+            return 0
     
     if not models:
         error_msg = "Translation service not available."
         logging.error(f"❌ [{request_id}] Service Error: {error_msg}")
-        return {"error": error_msg}
+        return {"error": error_msg, "code": "SERVICE_UNAVAILABLE", "diagnostics": get_diagnostics(full=False)}
 
     model_key = f"{source_language_code}_to_sinhala-sl"
     if model_key not in models:
         error_msg = f"Translation model for '{source_language_code}' not available."
         logging.error(f"❌ [{request_id}] Model Error: {error_msg}")
-        return {"error": error_msg}
+        return {"error": error_msg, "code": "MODEL_MISSING", "diagnostics": get_diagnostics(full=False)}
 
     model = models[model_key]
     logging.info(f"🤖 [{request_id}] Using model: {model_key}")
@@ -277,17 +364,7 @@ def translate_text_to_slsl(text, source_language_code="si", request_id="UNKNOWN"
         enhanced_signs_data = []
         fallback_count = 0
         
-        # Helper to detect Sinhala combining marks in a token
-        def _has_sinhala_combining_marks(token: str) -> bool:
-            return any(ch in SINHALA_COMBINING_MARKS_SET for ch in token)
-
-        # Helper to compute expected Option-B length
-        def _expected_option_b_len(token: str) -> int:
-            try:
-                letter_service = get_letter_mapping_service()
-                return len([d for d in letter_service.get_word_as_letter_sequence(token)])
-            except Exception:
-                return 0
+        # (helpers defined above)
 
         for i, sign_info in enumerate(signs_data):
             if isinstance(sign_info, dict):

@@ -1,11 +1,22 @@
 """
 Letter Mapping Service for Sinhala Sign Language
-Integrates landmark files from the Handsigns folder for letter-based sign translation
+Integrates landmark files for letter-based sign translation.
+
+Enhancement: When AWS S3 credentials are configured, generate pre-signed
+URLs for letter landmark JSONs using the key prefix "output_landmarks/".
+Falls back to serving from the local assets directory via the backend
+endpoint when S3 is not configured or a URL cannot be generated.
 """
 import os
 import json
 import logging
 from typing import Dict, List, Optional, Any
+
+# boto3 is optional; if not installed or not configured we fall back to local serving
+try:
+    import boto3  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    boto3 = None  # type: ignore
 
 # Define Sinhala character sets based on Unicode standards and the paper
 SINHALA_CONSONANTS = {
@@ -191,11 +202,52 @@ class LetterMappingService:
         logging.debug(f"[LetterMapping] OptionB letters for '{word}': {letters}")
         letter_signs = []
         
+        # Prepare S3 client lazily (if available and configured)
+        s3_client = None
+        aws_bucket = os.environ.get('AWS_S3_BUCKET_NAME')
+        aws_region = os.environ.get('AWS_S3_REGION')
+        aws_access_key = os.environ.get('AWS_ACCESS_KEY_ID')
+        aws_secret_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
+        aws_session_token = os.environ.get('AWS_SESSION_TOKEN')  # optional
+        # Allow overriding the key prefix; default matches the S3 console structure
+        s3_key_prefix = os.environ.get('LETTER_S3_PREFIX', 'output_landmarks/')
+
+        if boto3 and aws_bucket and aws_region and aws_access_key and aws_secret_key:
+            try:
+                s3_client = boto3.client(
+                    's3',
+                    aws_access_key_id=aws_access_key,
+                    aws_secret_access_key=aws_secret_key,
+                    aws_session_token=aws_session_token,
+                    region_name=aws_region
+                )
+                logging.info("LetterMapping: S3 client initialized for letter landmarks")
+            except Exception as e:
+                logging.warning(f"LetterMapping: Failed to initialize S3 client, falling back to local files: {e}")
+                s3_client = None
+
         for letter in letters:
             landmark_data = self.get_letter_landmark(letter)
             if landmark_data:
-                # Prefer a fetchable path so frontend can load frames on demand
-                landmark_path = f"/api/translate/landmark-data/{letter}.json"
+                # Build S3 pre-signed URL if configured; otherwise use local endpoint path
+                landmark_path: Optional[str] = None
+                if s3_client and aws_bucket:
+                    s3_key = f"{s3_key_prefix}{letter}.json"
+                    try:
+                        logging.debug(f"[LetterMapping] Generating S3 URL for key: {s3_key}")
+                        landmark_path = s3_client.generate_presigned_url(
+                            'get_object',
+                            Params={'Bucket': aws_bucket, 'Key': s3_key},
+                            ExpiresIn=3600
+                        )
+                        logging.debug(f"[LetterMapping] S3 URL generated for '{letter}'")
+                    except Exception as e:
+                        logging.warning(f"[LetterMapping] Could not generate S3 URL for '{letter}': {e}. Falling back to local endpoint")
+                        landmark_path = None
+
+                if not landmark_path:
+                    # Prefer a fetchable path so frontend can load frames on demand
+                    landmark_path = f"/api/translate/landmark-data/{letter}.json"
                 logging.debug(f"[LetterMapping] Mapped letter '{letter}' to landmark path: {landmark_path}")
                 sign_dict = {
                     "label": f"letter_{letter}",

@@ -3,7 +3,16 @@ import re
 import os
 
 
-IO_FILE = 'backend_python/sign-language-translator/sign_language_translator/assets/lk-dictionary-mapping.json'
+# Resolve the mapping file path relative to this script's location
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BACKEND_DIR = os.path.dirname(SCRIPT_DIR)
+IO_FILE = os.path.join(
+    BACKEND_DIR,
+    'sign-language-translator',
+    'sign_language_translator',
+    'assets',
+    'lk-dictionary-mapping.json'
+)
 
 # Sinhala consonants set, including prenasalized/retroflex forms used in landmarks
 SINHALA_CONSONANTS = {
@@ -50,10 +59,10 @@ def generate_new_variations_from_single_word(word):
 
     # Rule 1: Strip common enumerators/prefixes like "1. ", "10) ", "(අ) " etc.
     prefix_patterns = [
-        r"^\\d+\\.\\s*(.+)",            # Matches "1. word", captures "word"
-        r"^\\d+[)]\\s*(.+)",            # Matches "1) word", captures "word"
-        r"^[(]([a-zA-Z]+|[අ-ෆ])[)]\\s*(.+)",  # Matches "(a) word" or "(අ) word", captures letter then "word"
-        r"^[a-zA-Z]+\\.\\s*(.+)",      # Matches "a. word", captures "word"
+        r"^\d+\.\s*(.+)",            # Matches "1. word", captures "word"
+        r"^\d+[)]\s*(.+)",            # Matches "1) word", captures "word"
+        r"^[)]?([a-zA-Z]+|[අ-ෆ])[)]\s*(.+)",  # Matches "(a) word" or "(අ) word", captures letter then "word"
+        r"^[a-zA-Z]+\.\s*(.+)",      # Matches "a. word", captures "word"
     ]
     original_word_for_derivation = word
     for pattern in prefix_patterns:
@@ -191,7 +200,7 @@ def augment_dictionary(filepath):
     entries_changed_count = 0
     # Create a deep copy for comparison to see if anything actually changed
     original_data_str = json.dumps(data, sort_keys=True) 
-
+    
     for entry_id, entry_data in data.items():
         if "text" in entry_data and "si" in entry_data["text"] and \
            isinstance(entry_data["text"]["si"], list):
@@ -226,7 +235,7 @@ def augment_dictionary(filepath):
             print(f"Warning: Entry {entry_id} does not have a valid 'text.si' list structure. Skipping.")
     
     current_data_str = json.dumps(data, sort_keys=True)
-
+    
     if current_data_str != original_data_str:
         try:
             # Recalculate entries_changed_count based on actual differences if needed, 
@@ -267,18 +276,16 @@ if __name__ == '__main__':
         
         if not os.path.exists(IO_FILE):
             print(f"ERROR: Target file {IO_FILE} does not exist from the current directory.")
-            print("Please ensure you are running this script from the root of your project,")
-            print("or that the IO_FILE path is correct.")
+            print("Please ensure the assets exist at the expected location under 'backend_python/sign-language-translator'.")
         else:
             augment_dictionary(IO_FILE)
     else:
         print("Augmentation cancelled by the user.")
+    
+    # To run this script:
+    # 1. From the repo root or any directory:
+    #    python backend_python/scripts/augment_sinhala_dict.py
+    # 2. BACKUP your 'lk-dictionary-mapping.json' before running.
+    # 3. The script will prompt for confirmation before modifying the file in place.
 
-# To run this script:
-# 1. Save it as a .py file (e.g., augment_sinhala_dict.py) in the root of your 'signosi-fyp' project.
-# 2. IMPORTANT: Modify the `generate_new_variations_from_single_word` function 
-#    with your specific rules for generating Sinhala word variations.
-# 3. **BACKUP YOUR lk-dictionary-mapping.json FILE BEFORE RUNNING.**
-# 4. Open a terminal in the root of your 'signosi-fyp' project.
-# 5. Run the script: python augment_sinhala_dict.py
-# 6. Confirm when prompted if you want to modify the file in place.
+

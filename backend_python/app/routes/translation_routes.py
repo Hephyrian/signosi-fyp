@@ -3,7 +3,7 @@ import logging # Added for debugging
 import os # Added for file operations
 from datetime import datetime
 # Assuming translation_service.py is in backend_python/app/services/
-from ..services.translation_service import translate_text_to_slsl
+from ..services.translation_service import translate_text_to_slsl, get_diagnostics
 
 translate_bp = Blueprint('translate_bp', __name__)
 
@@ -36,8 +36,8 @@ def handle_text_to_slsl():
 
     if "error" in result:
         logging.error(f"❌ [{request_id}] Translation Service Error: {result}")
-        # Consider more specific error codes based on the error type
-        return jsonify(result), 500 
+        status = 503 if result.get("code") == "SERVICE_UNAVAILABLE" else 500
+        return jsonify(result), status
 
     # Log successful result
     num_signs = len(result.get("signs", []))
@@ -48,6 +48,17 @@ def handle_text_to_slsl():
         logging.info(f"📋 [{request_id}] Sign Labels: {sign_labels}")
 
     return jsonify(result), 200
+
+
+@translate_bp.route('/health', methods=['GET'])
+def health_check():
+    request_id = getattr(g, 'request_id', 'UNKNOWN')
+    timestamp = datetime.now().isoformat()
+    logging.info(f"🩺 [{timestamp}] HEALTH_ENDPOINT [{request_id}] Running health diagnostics")
+    diag = get_diagnostics(full=True)
+    healthy = diag.get("expected_model_si") or diag.get("letter_landmarks_count", 0) > 0
+    status_code = 200 if healthy else 503
+    return jsonify({"ok": healthy, "diagnostics": diag}), status_code
 
 @translate_bp.route('/landmark-data/<path:filename>', methods=['GET'])
 def serve_landmark_file(filename):

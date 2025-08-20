@@ -133,7 +133,11 @@ class _SpeechScreenState extends State<SpeechScreen> {
           });
         },
         listenFor: const Duration(seconds: 60),
-        pauseFor: const Duration(seconds: 5),
+        pauseFor: const Duration(seconds: 10),
+        partialResults: true,
+        cancelOnError: false,
+        listenMode: stt.ListenMode.dictation,
+        sampleRate: 44100,
         localeId: _selectedLanguage,
         onSoundLevelChange: (level) {
           print('onSoundLevelChange triggered: $level');

@@ -78,6 +78,13 @@ def create_app(config_object_name=None):
         
         flask_app.logger.info(f"✅ [{timestamp}] REQUEST_END [{g.request_id}] {response.status_code} - {duration:.3f}s")
         
+        # Attach correlation headers
+        try:
+            response.headers['X-Request-ID'] = getattr(g, 'request_id', 'UNKNOWN')
+            response.headers['X-Server-Timestamp'] = timestamp
+        except Exception:
+            pass
+
         if response.is_json:
             try:
                 # Log response size rather than full content for large responses
@@ -90,6 +97,19 @@ def create_app(config_object_name=None):
                 flask_app.logger.warning(f"⚠️ [{g.request_id}] Could not parse response JSON: {e}")
         
         return response
+
+    # Global error handler for unexpected exceptions
+    @flask_app.errorhandler(Exception)
+    def handle_unexpected_error(e):
+        request_id = getattr(g, 'request_id', 'UNKNOWN')
+        timestamp = datetime.now().isoformat()
+        flask_app.logger.error(f"💥 [{timestamp}] UNHANDLED_EXCEPTION [{request_id}] {e}", exc_info=True)
+        message = str(e) if flask_app.config.get('DEBUG') else 'Internal server error'
+        return jsonify({
+            "error": message,
+            "code": "UNHANDLED_EXCEPTION",
+            "request_id": request_id,
+        }), 500
 
     # Import and register blueprints
     try:

@@ -4,12 +4,15 @@ import logging
 import re
 from deep_translator import GoogleTranslator
 
+# --- Path Resolution (robust to CWD) ---
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BACKEND_DIR = os.path.dirname(SCRIPT_DIR)
+BASE_SIGN_LANGUAGE_TRANSLATOR_PATH = os.path.join(BACKEND_DIR, "sign-language-translator", "sign_language_translator")
+
 # --- Configuration ---
-# Prepend 'backend_python' to the base path
-BASE_SIGN_LANGUAGE_TRANSLATOR_PATH = os.path.join("sign-language-translator", "sign_language_translator")
 # Save directly to assets directory with the expected name format
 MAPPING_FILE_PATH = os.path.join(BASE_SIGN_LANGUAGE_TRANSLATOR_PATH, "assets", "lk-dictionary-mapping.json")
-LOG_FILE_PATH = "populate_mapping.log" # Log file will be created in the CWD (backend_python/)
+LOG_FILE_PATH = os.path.join(BACKEND_DIR, "populate_mapping.log")  # Log file in backend_python/
 
 MEDIA_SOURCES = [
     {
@@ -66,14 +69,14 @@ def find_media_file(directory_path, dir_name):
     for ext in [".mp4", ".mov"]:
         preferred_file = f"001{ext}"
         if os.path.exists(os.path.join(directory_path, preferred_file)):
-            return preferred_file, False # Still considered a primary pattern
+            return preferred_file, False  # Still considered a primary pattern
 
     # Rule 3: Alphabetically first .mp4 or .mov
     files = sorted(os.listdir(directory_path))
     for ext in [".mp4", ".mov"]:
         for f_name in files:
             if f_name.lower().endswith(ext):
-                return f_name, True # Fallback used
+                return f_name, True  # Fallback used
     
     return None, False
 
@@ -97,20 +100,20 @@ def process_video_files(media_source, existing_mapping, next_lk_id):
     for entry_data_val in existing_mapping.values():
         if "text" in entry_data_val and "en" in entry_data_val["text"] and entry_data_val["text"]["en"]:
             for en_g in entry_data_val["text"]["en"]:
-                 if isinstance(en_g, str):
+                if isinstance(en_g, str):
                     initial_processed_english_glosses.add(en_g.lower())
 
-    for category_name in sorted(os.listdir(media_base_dir)): # e.g., Adjectives, Nouns
+    for category_name in sorted(os.listdir(media_base_dir)):  # e.g., Adjectives, Nouns
         category_path = os.path.join(media_base_dir, category_name)
         if not os.path.isdir(category_path):
-            continue # Skip if it's not a directory
+            continue  # Skip if it's not a directory
 
         logging.info(f"Processing video category: {category_name}")
 
-        for gloss_dir_name in sorted(os.listdir(category_path)): # e.g., Happy, Sad (this is the English gloss)
+        for gloss_dir_name in sorted(os.listdir(category_path)):  # e.g., Happy, Sad (this is the English gloss)
             current_gloss_dir_path = os.path.join(category_path, gloss_dir_name)
             if os.path.isdir(current_gloss_dir_path):
-                english_gloss_video = gloss_dir_name # The subdirectory name is the English gloss
+                english_gloss_video = gloss_dir_name  # The subdirectory name is the English gloss
 
                 if english_gloss_video.lower() in initial_processed_english_glosses:
                     logging.info(f"Skipping video directory '{category_name}/{gloss_dir_name}': An entry for English gloss '{english_gloss_video}' already exists in the mapping.")
@@ -145,7 +148,7 @@ def process_video_files(media_source, existing_mapping, next_lk_id):
                 # Construct relative media path from the perspective of 'assets' directory
                 relative_media_path_parts = [
                     "datasets", 
-                    os.path.basename(media_base_dir), # Should be "Dataset-Original"
+                    os.path.basename(media_base_dir),  # Should be "Dataset-Original"
                     category_name,
                     gloss_dir_name,
                     media_filename
@@ -163,7 +166,7 @@ def process_video_files(media_source, existing_mapping, next_lk_id):
                 }
 
                 existing_mapping[entry_key_video] = new_video_entry
-                initial_processed_english_glosses.add(english_gloss_video.lower()) # Add to set after successful processing
+                initial_processed_english_glosses.add(english_gloss_video.lower())  # Add to set after successful processing
                 logging.info(f"Added video entry for '{english_gloss_video}' (Category: {category_name}, Sinhala: {sinhala_translations_video[0]}) with media '{media_filename}' as key '{entry_key_video}' at path '{correct_media_path}'")
                 next_lk_id += 1
                 video_added_count += 1
@@ -182,7 +185,7 @@ def process_landmark_files(media_source, existing_mapping, next_lk_id):
 
     for filename in sorted(os.listdir(media_base_dir)):
         if filename.lower().endswith(file_extensions):
-            sinhala_char = os.path.splitext(filename)[0] # Extract Sinhala character from filename
+            sinhala_char = os.path.splitext(filename)[0]  # Extract Sinhala character from filename
             
             # Construct a unique key for the entry
             entry_key_landmark = f"{dataset_prefix}-{next_lk_id:03d}_{sinhala_char.replace(' ', '_')}"
@@ -197,9 +200,9 @@ def process_landmark_files(media_source, existing_mapping, next_lk_id):
 
             new_landmark_entry = {
                 "text": {
-                    "si": [sinhala_char] # Sinhala character is the text
+                    "si": [sinhala_char]  # Sinhala character is the text
                 },
-                "landmark_data": correct_media_path, # Use landmark_data for S3 key
+                "landmark_data": correct_media_path,  # Use landmark_data for S3 key
                 "media_type": "landmark"
             }
 
@@ -265,3 +268,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
